@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 # ─── Database ────────────────────────────────────────────────────────────────
-DB_PATH = "regog.db"
+from pathlib import Path
+# Absolute path to avoid ambiguity between project root and regog/ subdirectory
+DB_PATH = str(Path(__file__).parent.parent / "regog.db")
 
 # ─── Scoring Weights ─────────────────────────────────────────────────────────
 RESIDENTIAL_WEIGHTS = {
@@ -52,9 +54,47 @@ COMP_DEFAULTS = {
     "sold_months": 12,          # look back window
 }
 
+# ── Comp Search Radius (miles) ────────────────────────────────────────────────
+# Three tiers per property type per market density.
+# System tries Tier 1 first, expands outward if insufficient comps found.
+MIN_COMPS_REQUIRED = 3  # minimum comps before accepting a tier
+
+COMP_RADII = {
+    "residential": {
+        "urban":    [0.25, 0.50, 0.75],
+        "suburban": [0.50, 1.00, 1.50],
+        "rural":    [2.00, 5.00, 10.0],
+    },
+    "land": {
+        "urban":    [0.50, 1.00, 2.00],
+        "suburban": [1.00, 3.00, 5.00],
+        "rural":    [5.00, 10.0, 20.0],
+    },
+    "commercial": {
+        "urban":    [0.50, 1.00, 1.50],
+        "suburban": [1.00, 2.00, 3.00],
+        "rural":    [3.00, 7.00, 15.0],
+    },
+}
+
+# Fallback if property type is unrecognized
+COMP_RADII_DEFAULT = COMP_RADII["residential"]
+
+# ── Comp Expansion: Time Windows (days) ─────────────────────────────────────
+# After exhausting all radius tiers, expand lookback window in this order.
+COMP_LOOKBACK_TIERS = [180, 270, 365, 540]
+
+# Staleness penalty applied to comp confidence when lookback > 365 days
+COMP_STALENESS_PENALTY = 0.15  # 15% confidence reduction
+
+# Confidence thresholds for UI flagging
+COMP_CONFIDENCE_HIGH = 0.80    # 3+ comps, tier 1-2 radius, <= 365 days
+COMP_CONFIDENCE_MEDIUM = 0.50  # 3+ comps but expanded radius or time
+COMP_CONFIDENCE_LOW = 0.00     # < 3 comps even after full expansion
+
 # ─── Scan Defaults ───────────────────────────────────────────────────────────
 SCAN_DEFAULTS = {
-    "past_days": 90,
+    "past_days": 180,  # was 90 — increased to capture older inventory
 }
 
 # ─── Rate Limits (seconds between requests) ──────────────────────────────────
@@ -63,6 +103,7 @@ RATE_LIMITS = {
     "redfin": {"delay_min": 1, "delay_max": 3, "max_per_hour": 300},
     "zillow": {"delay_min": 4, "delay_max": 9, "max_per_hour": 60},
     "assessor": {"delay_min": 3, "delay_max": 8, "max_per_hour": 100},
+    "craigslist": {"delay_min": 3, "delay_max": 7, "max_per_hour": 80},
 }
 
 # ─── User Agents ─────────────────────────────────────────────────────────────
@@ -156,5 +197,6 @@ DOM_SCORE_BRACKETS = [
     (30, 15),     # 0-30 days → 15 pts
     (90, 10),     # 31-90 days → 10 pts
     (180, 5),     # 91-180 days → 5 pts
-    (float("inf"), 2),  # 180+ → 2 pts
+    (365, 2),     # 181-365 days → 2 pts
+    (float("inf"), 0),  # 365+ → 0 pts (was 2, now 0 to enable SKIP)
 ]

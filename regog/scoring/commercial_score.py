@@ -6,7 +6,7 @@ Routes by commercial_subtype for specialized scoring.
 import re
 from typing import Optional
 from config import COMMERCIAL_WEIGHTS, TIER_THRESHOLDS, FLOOD_SCORES, CONDITION_SCORES
-from scoring.utils import assign_tier
+from scoring.utils import assign_tier, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap
 
 
 def score_commercial(property_dict: dict) -> dict:
@@ -52,8 +52,15 @@ def score_commercial(property_dict: dict) -> dict:
     flood_zone = property_dict.get("flood_zone")
     scores["flood_penalty"] = FLOOD_SCORES.get(flood_zone, 8)
 
+    # Apply comp fallback: when comp_count=0, use estimated_value as proxy
+    scores = apply_comp_fallback(property_dict, scores)
+
+    # Apply confidence cap: if comp_confidence_label is LOW, cap price_deviation at 10
+    scores = apply_confidence_cap(property_dict, scores)
+
     # Total
     total = sum(scores.values())
+    total, _ = cap_score_if_no_comps(total, scores)
 
     # Lead tier
     tier = assign_tier(total)

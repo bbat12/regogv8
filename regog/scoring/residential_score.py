@@ -11,7 +11,7 @@ from config import (
     FLOOD_SCORES,
     PERMIT_SCORES,
 )
-from scoring.utils import assign_tier
+from scoring.utils import assign_tier, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap
 
 
 def score_residential(property_dict: dict) -> dict:
@@ -29,14 +29,22 @@ def score_residential(property_dict: dict) -> dict:
     """
     scores = {}
 
-    # 1. Price deviation (40 pts max)
-    # price_deviation_pct: -50% = 40pts, -20% = 20pts, +10% = 0pts
+    # 1. Price deviation (40 pts max, can go negative for overpriced)
+    # price_deviation_pct: -50% = 40pts, -20% = 16pts, +10% = -2pts penalty
+    # Positive deviation (overpriced) = PENALTY to enable SKIP tier
     dev = property_dict.get("price_deviation_pct") or 0
-    scores["price_deviation"] = max(0, min(40, (-dev / 50) * 40))
+    dev = float(dev)
+    if dev <= 0:
+        # Below median = good deal
+        scores["price_deviation"] = max(0.0, min(40.0, (-dev / 50.0) * 40.0))
+    else:
+        # Above median = overpriced = negative score
+        scores["price_deviation"] = max(-10.0, -(dev / 50.0) * 10.0)
 
-    # 2. Days on market (15 pts max)
+    # 2. Days on market (15 pts max, 0 for 180+ days)
     dom = property_dict.get("days_on_market") or 0
-    dom_score = 2  # default for 180+
+    dom_score = 0  # default for 180+ days (was 2, now 0 to enable SKIP)
+    # DOM_SCORE_BRACKETS: [(30, 15), (90, 10), (180, 5), (365, 2), (inf, 0)]
     for threshold, pts in DOM_SCORE_BRACKETS:
         if dom <= threshold:
             dom_score = pts
@@ -71,8 +79,15 @@ def score_residential(property_dict: dict) -> dict:
     permit_risk = permit_flags.get("permit_risk", "unknown")
     scores["permit_risk"] = PERMIT_SCORES.get(permit_risk, 0)
 
-    # Total
+    # Apply comp fallback: when comp_count=0, use estimated_value as proxy
+    scores = apply_comp_fallback(property_dict, scores)
+
+    # Apply confidence cap: if comp_confidence_label is LOW, cap price_deviation at 10
+    scores = apply_confidence_cap(property_dict, scores)
+
+    # Total (can be negative if severely overpriced)
     total = sum(scores.values())
+    total, _ = cap_score_if_no_comps(total, scores)
 
     # Lead tier
     tier = assign_tier(total)
@@ -81,10 +96,14 @@ def score_residential(property_dict: dict) -> dict:
     if classification in ("fire_damage", "teardown"):
         tier = f"DISTRESSED_{tier}"
 
+    # Data confidence — HIGH for residential with comp confidence
+    # (Will be overridden by comp_confidence from the engine)
+
     return {
         "scores": scores,
         "total": round(total, 1),
         "tier": tier,
+        "data_confidence": "HIGH",
     }
 
 

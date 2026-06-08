@@ -78,6 +78,8 @@ Examples:
     scan_parser.add_argument("--zillow-pages", type=int, default=2, help="Zillow search result pages to scrape (default 2, ~40 listings/page)")
     scan_parser.add_argument("--past-days", type=int, default=SCAN_DEFAULTS["past_days"], help=f"Look back period (default {SCAN_DEFAULTS['past_days']})")
     scan_parser.add_argument("--limit", type=int, default=50, help="Max results (default 50)")
+    scan_parser.add_argument("--use-redfin", action="store_true", help="Also scrape Redfin via browser as a secondary listing source")
+    scan_parser.add_argument("--use-craigslist", action="store_true", help="Also scrape Craigslist for FSBO/motivated seller listings")
 
     # ─── leads ─────────────────────────────────────────────────────────────
     leads_parser = subparsers.add_parser("leads", help="Show leads")
@@ -208,7 +210,9 @@ def cmd_scan(args):
 
         render_success(f"Found {len(raw_listings)} raw listings from Realtor.com")
 
-        # 1b. Optionally fetch Zillow listings as a secondary source
+        # 1b. Optionally fetch additional listings from secondary sources
+        secondary_sources = []
+
         if args.use_zillow:
             render_info("Fetching listings from Zillow (stealth browser)...")
             try:
@@ -220,24 +224,51 @@ def cmd_scan(args):
                 )
                 if zillow_listings:
                     render_success(f"Found {len(zillow_listings)} listings from Zillow")
-                    # Merge Zillow listings into raw_listings (dedup by address + price)
-                    existing_keys = {
-                        (r.get("address", ""), r.get("list_price"))
-                        for r in raw_listings
-                    }
-                    new_from_zillow = 0
-                    for z in zillow_listings:
-                        key = (z.get("address", ""), z.get("list_price"))
-                        if key not in existing_keys:
-                            raw_listings.append(z)
-                            existing_keys.add(key)
-                            new_from_zillow += 1
-                    render_success(f"Added {new_from_zillow} new listings from Zillow")
-                else:
-                    render_info("No Zillow listings returned (may need Playwright setup)")
+                    secondary_sources.append(zillow_listings)
             except Exception as e:
                 logger.warning(f"Zillow scrape failed: {e}")
                 render_info("Zillow scraping skipped due to error")
+
+        if args.use_redfin:
+            render_info("Fetching listings from Redfin (browser)...")
+            try:
+                from scrapers.redfin_playwright import scrape_redfin_listings
+                redfin_listings = scrape_redfin_listings(
+                    location=args.location,
+                    price_max=args.price_max,
+                    scan_type=args.scan_type,
+                    limit=50,
+                )
+                if redfin_listings:
+                    render_success(f"Found {len(redfin_listings)} listings from Redfin")
+                    secondary_sources.append(redfin_listings)
+                else:
+                    render_info("No Redfin listings returned")
+            except Exception as e:
+                logger.warning(f"Redfin scrape failed: {e}")
+                render_info("Redfin scraping skipped due to error")
+
+        if args.use_craigslist:
+            render_info("Fetching listings from Craigslist...")
+            try:
+                from scrapers.craigslist_scraper import scrape_craigslist_housing
+                cl_listings = scrape_craigslist_housing(
+                    location=args.location,
+                    price_max=args.price_max,
+                    scan_type=args.scan_type,
+                    limit=50,
+                )
+                if cl_listings:
+                    render_success(f"Found {len(cl_listings)} listings from Craigslist")
+                    secondary_sources.append(cl_listings)
+                else:
+                    render_info("No Craigslist listings returned")
+            except Exception as e:
+                logger.warning(f"Craigslist scrape failed: {e}")
+                render_info("Craigslist scraping skipped due to error")            # Deduplicate all sources
+        if secondary_sources:
+            from utils.dedup import merge_and_deduplicate
+            raw_listings = merge_and_deduplicate(raw_listings, secondary_sources[0])
 
         if not raw_listings:
             render_info("No listings found from any source. Try a different location or broader search criteria.")
@@ -295,10 +326,9 @@ def cmd_scan(args):
                 prop["score_condition"] = score_result["scores"].get("condition", 0)
                 prop["score_flood_penalty"] = score_result["scores"].get("flood_penalty", 0)
                 prop["lead_tier"] = score_result["tier"]
+                prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
-                # Upsert to DB (strip UI-only fields not in DB schema)
-                prop.pop("property_url", None)
-                prop.pop("style", None)
+                # Upsert to DB
                 upsert_property(conn, prop)
 
                 if prop.get("lead_tier") == "HOT":
@@ -540,9 +570,9 @@ def cmd_schedule(args):
                     score_result = score_commercial(prop)
                 prop["score_total"] = score_result["total"]
                 prop["lead_tier"] = score_result["tier"]
+                prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
                 from db.database import upsert_property
-                prop.pop("property_url", None)  # Strip UI-only field not in DB schema
                 upsert_property(conn, prop)
 
                 if prop.get("lead_tier") == "HOT":

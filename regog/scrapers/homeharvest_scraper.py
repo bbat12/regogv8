@@ -79,21 +79,7 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
                 return v
         return None
 
-    listing_id = g("property_id", "listing_id", "mls_id", "id")
-    if not listing_id:
-        listing_id = f"{source}_{hash(str(raw.get('address', '')) + str(raw.get('list_price', '')))}"
-
-    beds = g("beds", "bedrooms", "baths_full", "bathrooms_full")
-    baths_total = g("full_baths", "baths", "bathrooms", "bathrooms_total")
-    sqft_val = g("sqft", "square_feet", "sq_ft", "living_area", "building_area")
-    lot_sqft_val = g("lot_sqft", "lot_square_feet", "lot_size_sqft")
-    acres_val = g("acres", "acreage", "lot_size_acres", "lot_acres")
-
-    # Property style/type (e.g. SINGLE_FAMILY, CONDOS, TOWNHOMES, MULTI_FAMILY, LAND)
-    # Capturing this is critical for accurate comp matching
-    property_style = g("style", "property_type", "home_type")
-
-    # Attempt to cast numeric fields
+    # Attempt to cast numeric fields — define BEFORE field processing
     def num(v):
         try:
             return int(v) if v else None
@@ -108,6 +94,36 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
             return float(v) if v else None
         except (ValueError, TypeError):
             return None
+
+    listing_id = g("property_id", "listing_id", "mls_id", "id")
+    if not listing_id:
+        listing_id = f"{source}_{hash(str(raw.get('address', '')) + str(raw.get('list_price', '')))}"
+
+    beds = g("beds", "bedrooms", "baths_full", "bathrooms_full")
+    baths_total = g("full_baths", "baths", "bathrooms", "bathrooms_total")
+    sqft_val = g("sqft", "square_feet", "sq_ft", "living_area", "building_area")
+    lot_sqft_val = g(
+        "lot_sqft", "lot_size_sqft", "lot_area",
+        "land_sqft", "parcel_sqft", "lot_size",
+        "lot_area_sqft", "land_area_sqft", "lot_square_feet"
+    )
+    acres_val = g(
+        "acres", "acreage", "lot_size_acres", "lot_acres",
+        "total_acres", "parcel_acres", "land_area",
+        "land_acres", "area_acres", "gross_acres", "net_acres", "lot_area_acres"
+    )
+
+    # Fallback: derive acres from lot_sqft if direct field not found
+    if acres_val is None:
+        lot_sqft_val_from_acres = g("lot_sqft", "lot_size_sqft", "lot_area", "land_area_sqft")
+        if lot_sqft_val_from_acres:
+            parsed = flt(lot_sqft_val_from_acres)
+            if parsed and parsed > 0:
+                acres_val = round(parsed / 43560, 4)
+
+    # Property style/type (e.g. SINGLE_FAMILY, CONDOS, TOWNHOMES, MULTI_FAMILY, LAND)
+    # Capturing this is critical for accurate comp matching
+    property_style = g("style", "property_type", "home_type")
 
     price = num(g("list_price", "price", "current_price", "sold_price"))
     beds_int = num(beds)
@@ -182,6 +198,9 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
     }
 
 
+# ⚠️ STALE FUNCTION — Do NOT use.
+# The real sold comps function is in scrapers/redfin_scraper.py (fetch_sold_comps).
+# This stub exists because early versions of the code had it here.
 def fetch_sold_comps(
     lat: float,
     lon: float,
@@ -189,13 +208,6 @@ def fetch_sold_comps(
     scan_type: str = "residential",
 ) -> list[dict]:
     """
-    Fetch sold comps near a point using HomeHarvest.
-    We geocode the point to a nearby city/zip then filter by distance in post-processing.
-    This is a simplified version — real implementation requires geocoding integration.
+    STALE — Do NOT use. See scrapers/redfin_scraper.py for the real implementation.
     """
-    if not HAS_HOMEHARVEST:
-        return []
-
-    logger.info(f"Fetching sold comps near ({lat:.4f}, {lon:.4f}) radius {radius_miles}mi")
-    # For now, return empty — comps will be fetched by city-level query
     return []

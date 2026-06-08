@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS properties (
     comp_radius_miles REAL,
     comp_price_per_sqft_median REAL,
     comp_price_per_acre_median REAL,
+    property_url TEXT,              -- Direct Realtor.com detail URL
+    style TEXT,                     -- Property type for comp matching: SINGLE_FAMILY, CONDOS, TOWNHOMES, MULTI_FAMILY, LAND
+    comp_confidence TEXT,           -- 'HIGH' | 'MEDIUM' | 'LOW' based on comp count
     score_total REAL,               -- 0-100
     score_price_deviation REAL,
     score_dom_signal REAL,
@@ -51,8 +54,13 @@ CREATE TABLE IF NOT EXISTS properties (
     score_flood_penalty REAL,
     lead_tier TEXT,                 -- 'HOT', 'WARM', 'NEUTRAL', 'RISKY', 'SKIP'
     price_deviation_pct REAL,       -- negative = below median (good), positive = above
+    data_confidence TEXT,           -- 'HIGH' | 'MEDIUM' | 'LOW' — data quality indicator
     first_seen TEXT,
     last_updated TEXT,
+    comp_listings TEXT,             -- JSON array of top comps: [{address, list_price, property_url, ...}]
+    comp_lookback_used INTEGER,     -- days of sold history used (180/270/365/540)
+    comp_confidence_label TEXT,     -- 'HIGH' | 'MEDIUM' | 'LOW'
+    comp_staleness_penalty_applied INTEGER,  -- SQLite boolean: 0 or 1
     scan_session_id TEXT
 );
 

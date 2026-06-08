@@ -32,8 +32,11 @@ _scan_status: dict[str, dict] = {}            # session_id -> status metadata
 _scan_status_lock: threading.Lock = threading.Lock()  # protects _scan_status
 _saved_properties: set[str] = set()            # set of listing_ids
 
-logging.basicConfig(level=logging.INFO)
+# Ensure we capture all logging (including stderr for debugging thread errors)
+logging.basicConfig(level=logging.DEBUG, force=True,
+                    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 logger = logging.getLogger("regog-web")
+logger.setLevel(logging.DEBUG)
 
 # ─── API Endpoints ─────────────────────────────────────────────────────────
 
@@ -440,18 +443,10 @@ def _run_scan_background(
                 prop["score_condition"] = score_result["scores"].get("condition", 0)
                 prop["score_flood_penalty"] = score_result["scores"].get("flood_penalty", 0)
                 prop["lead_tier"] = score_result["tier"]
+                prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
-                # Upsert to DB (strip UI-only fields that aren't in the DB schema)
-                prop_url = prop.pop("property_url", None)
-                prop_style = prop.pop("style", None)
-                try:
-                    upsert_property(conn, prop)
-                finally:
-                    # Restore for streaming regardless of upsert outcome
-                    if prop_url is not None:
-                        prop["property_url"] = prop_url
-                    if prop_style is not None:
-                        prop["style"] = prop_style
+                # Upsert to DB
+                upsert_property(conn, prop)
 
                 # Push to SSE stream
                 progress_q.put(dict(prop))
@@ -467,7 +462,9 @@ def _run_scan_background(
                     _update_status(status)
 
             except Exception as e:
-                logger.warning(f"Error processing listing {i}: {e}")
+                import traceback
+                logger.error(f"Error processing listing {i}: {e}")
+                logger.error(traceback.format_exc())
                 continue
 
         # Complete session

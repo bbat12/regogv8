@@ -16,12 +16,13 @@ import pytest
 def standard_residential():
     """A baseline residential property with typical values."""
     return {
-        "price_deviation_pct": -10.0,       # 10% below median → good deal
-        "days_on_market": 45,                # 31-90 days bracket → 10 pts
+        "comp_count": 10,                     # Enough comps for reliable scoring
+        "price_deviation_pct": -10.0,         # 10% below median → good deal
+        "days_on_market": 45,                 # 31-90 days bracket → 10 pts
         "assessed_value": 350000,
-        "list_price": 300000,                # Below assessed value → positive gap
+        "list_price": 300000,                 # Below assessed value → positive gap
         "brain_classification": "standard",
-        "flood_zone": "X",                   # Minimal flood risk
+        "flood_zone": "X",                    # Minimal flood risk
         "permit_flags": {"permit_risk": "unknown"},
     }
 
@@ -30,12 +31,13 @@ def standard_residential():
 def hot_deal_residential():
     """A screaming deal — deeply discounted, long DOM, large assessor gap."""
     return {
-        "price_deviation_pct": -45.0,        # Way below median
-        "days_on_market": 150,               # 91-180 days bracket → 5 pts
+        "comp_count": 10,                     # Enough comps for reliable scoring
+        "price_deviation_pct": -45.0,         # Way below median
+        "days_on_market": 150,                # 91-180 days bracket → 5 pts
         "assessed_value": 400000,
-        "list_price": 220000,                # Assessed way above list → big gap
-        "brain_classification": "vacant",     # Vacant condition → 10 pts
-        "flood_zone": "X",                   # No flood risk
+        "list_price": 220000,                 # Assessed way above list → big gap
+        "brain_classification": "vacant",      # Vacant condition → 10 pts
+        "flood_zone": "X",                    # No flood risk
         "permit_flags": {"permit_risk": "low"},  # Permits mentioned → bonus
     }
 
@@ -44,12 +46,13 @@ def hot_deal_residential():
 def skip_residential():
     """An overpriced property with no signals."""
     return {
-        "price_deviation_pct": 15.0,         # 15% above median → bad
-        "days_on_market": 5,                 # 0-30 days → 15 pts
-        "assessed_value": None,              # No assessor data
+        "comp_count": 10,                     # Enough comps to avoid fallback
+        "price_deviation_pct": 15.0,          # 15% above median → bad
+        "days_on_market": 5,                  # 0-30 days → 15 pts
+        "assessed_value": None,               # No assessor data
         "list_price": 500000,
         "brain_classification": "standard",
-        "flood_zone": "AE",                  # High flood risk → penalty
+        "flood_zone": "AE",                   # High flood risk → penalty
         "permit_flags": {"permit_risk": "high"},  # Permit issues → penalty
     }
 
@@ -72,6 +75,7 @@ def missing_data_residential():
 def distressed_residential():
     """Fire-damaged property — should get DISTRESSED_ prefix."""
     return {
+        "comp_count": 10,                     # Enough comps to avoid fallback
         "price_deviation_pct": -30.0,
         "days_on_market": 90,
         "assessed_value": 300000,

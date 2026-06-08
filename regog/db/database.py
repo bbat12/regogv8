@@ -19,6 +19,7 @@ _JSON_FIELDS = {
     "brain_green_flags",
     "price_history",
     "permit_flags",
+    "comp_listings",
 }
 
 
@@ -83,6 +84,18 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         ("estimated_value", "INTEGER", "ALTER TABLE properties ADD COLUMN estimated_value INTEGER"),
         ("county", "TEXT", "ALTER TABLE properties ADD COLUMN county TEXT"),
         ("flood_zone", "TEXT", "ALTER TABLE properties ADD COLUMN flood_zone TEXT"),
+        ("property_url", "TEXT", "ALTER TABLE properties ADD COLUMN property_url TEXT"),
+        ("style", "TEXT", "ALTER TABLE properties ADD COLUMN style TEXT"),
+        ("comp_confidence", "TEXT", "ALTER TABLE properties ADD COLUMN comp_confidence TEXT"),
+        ("data_confidence", "TEXT", "ALTER TABLE properties ADD COLUMN data_confidence TEXT"),
+        ("comp_listings", "TEXT", "ALTER TABLE properties ADD COLUMN comp_listings TEXT"),
+        ("comp_radius_used", "REAL", "ALTER TABLE properties ADD COLUMN comp_radius_used REAL"),
+        ("comp_tier_used", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_tier_used INTEGER"),
+        ("comp_category", "TEXT", "ALTER TABLE properties ADD COLUMN comp_category TEXT"),
+        ("comp_density", "TEXT", "ALTER TABLE properties ADD COLUMN comp_density TEXT"),
+        ("comp_lookback_used", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_lookback_used INTEGER"),
+        ("comp_confidence_label", "TEXT", "ALTER TABLE properties ADD COLUMN comp_confidence_label TEXT"),
+        ("comp_staleness_penalty_applied", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_staleness_penalty_applied INTEGER"),
     ]
 
     for col_name, col_type, sql in migrations:

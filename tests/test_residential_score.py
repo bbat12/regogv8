@@ -55,11 +55,24 @@ class TestPriceDeviation:
         result = score_residential(prop)
         assert result["scores"]["price_deviation"] == 16.0
 
-    def test_overpriced_gets_zero(self):
-        # +10% deviation → 0 pts (capped)
+    def test_overpriced_gets_negative_penalty(self):
+        # +10% deviation → -2 pts (penalty, not capped at 0)
         prop = {"price_deviation_pct": 10.0}
         result = score_residential(prop)
-        assert result["scores"]["price_deviation"] == 0.0
+        # -(10/50)*10 = -2.0
+        assert result["scores"]["price_deviation"] == -2.0
+
+    def test_heavily_overpriced_max_penalty(self):
+        # +50% deviation → max -10 pts
+        prop = {"price_deviation_pct": 50.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == -10.0
+
+    def test_overpriced_capped_at_ten(self):
+        # +100% deviation → capped at -10 pts
+        prop = {"price_deviation_pct": 100.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == -10.0
 
     def test_no_deviation(self):
         # At market price → 0 pts
@@ -105,7 +118,8 @@ class TestDaysOnMarket:
     def test_stale_listing_min_score(self):
         prop = {"days_on_market": 1000}
         result = score_residential(prop)
-        assert result["scores"]["dom_signal"] == 2
+        # 365+ days → 0 pts (was 2, now 0 to enable SKIP tier)
+        assert result["scores"]["dom_signal"] == 0
 
     def test_missing_dom_defaults_zero(self):
         # None → treated as 0 by `or 0` → fresh
@@ -307,12 +321,13 @@ class TestEdgeCases:
     def test_exact_boundary_scoring(self):
         """Test a handful of known score calculations."""
         prop = {
-            "price_deviation_pct": -50.0,  # 40 pts
-            "days_on_market": 30,           # 15 pts
+            "comp_count": 10,                 # Enough comps to avoid fallback cap
+            "price_deviation_pct": -50.0,    # 40 pts
+            "days_on_market": 30,             # 15 pts
             "assessed_value": 200000,
-            "list_price": 100000,            # gap = 50% → capped at 20 pts
+            "list_price": 100000,              # gap = 50% → capped at 20 pts
             "brain_classification": "standard",  # 15 pts
-            "flood_zone": "X",              # 10 pts
+            "flood_zone": "X",                # 10 pts
             "permit_flags": {"permit_risk": "low"},  # +3 pts
         }
         result = score_residential(prop)

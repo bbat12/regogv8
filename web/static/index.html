@@ -738,6 +738,20 @@
             border-bottom: 1px solid var(--border);
         }
 
+        /* ─── Data Notice Banner ──────────────────────────────────── */
+        .data-notice {
+            background: rgba(255, 68, 170, 0.06);
+            border: 1px solid rgba(255, 68, 170, 0.1);
+            border-radius: var(--radius-sm);
+            padding: 0.5rem 0.75rem;
+            color: #aaaacc;
+            font-size: 0.75rem;
+            margin-bottom: 1rem;
+            display: none;
+            text-align: center;
+        }
+        .data-notice .hl { color: var(--magenta); font-weight: 500; }
+
         /* ─── Loading / Error States ───────────────────────────────── */
         .scanning-message {
             text-align: center;
@@ -783,6 +797,133 @@
         }
 
         .scan-complete-banner strong { color: var(--text); }
+
+        /* ─── Comp Listings ──────────────────────────────────────── */
+        .comp-listings {
+            margin-top: 0.75rem;
+        }
+
+        .comp-listings .comp-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.4rem;
+        }
+
+        .comp-listings .comp-header span {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .comp-listings .comp-header .comp-count-badge {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 0.1rem 0.4rem;
+            border-radius: 999px;
+        }
+
+        .comp-scroll {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding-bottom: 0.4rem;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .comp-scroll::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .comp-scroll::-webkit-scrollbar-track {
+            background: var(--bg);
+            border-radius: 2px;
+        }
+
+        .comp-scroll::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        .comp-card {
+            flex: 0 0 200px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 0.5rem 0.65rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            scroll-snap-align: start;
+            text-decoration: none;
+            display: block;
+            color: var(--text);
+        }
+
+        .comp-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .comp-card .comp-addr {
+            font-size: 0.7rem;
+            color: var(--text);
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .comp-card .comp-price {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.8rem;
+            color: var(--green);
+            font-weight: 700;
+            margin-top: 0.15rem;
+        }
+
+        .comp-card .comp-meta {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-top: 0.2rem;
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .comp-card .comp-open-icon {
+            float: right;
+            font-size: 0.65rem;
+            opacity: 0.4;
+            transition: opacity 0.2s;
+            margin-top: 0.1rem;
+        }
+
+        .comp-card:hover .comp-open-icon {
+            opacity: 1;
+        }
+
+        .comp-card .comp-label {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: rgba(68, 255, 102, 0.08);
+            border: 1px solid rgba(68, 255, 102, 0.1);
+            padding: 0.05rem 0.35rem;
+            border-radius: 3px;
+            display: inline-block;
+            margin-top: 0.2rem;
+        }
+
+        .comp-listings-empty {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            padding: 0.5rem 0;
+        }
 
         /* ─── Responsive ──────────────────────────────────────────── */
         @media (max-width: 768px) {
@@ -880,6 +1021,13 @@
             <div id="saved-list"><p style="color:var(--text-dim);font-size:0.85rem;">No saved properties yet. Star a property to save it.</p></div>
         </div>
 
+        <!-- Data Notice -->
+        <div class="data-notice" id="data-notice">
+            ⚠ Prices sourced from Realtor.com via HomeHarvest. 
+            <span class="hl">Verify all HOT leads directly before acting.</span>
+            Click <strong>"View Listing"</strong> to confirm on Realtor.com.
+        </div>
+
         <!-- Complete Banner -->
         <div class="scan-complete-banner" id="complete-banner">
             ✓ Scan complete! Found <strong id="complete-total">0</strong> properties,
@@ -931,6 +1079,14 @@
                 return;
             }
 
+            // Check for state-level location (warn user about huge result sets)
+            const stateLevelPatterns = /^(texas|california|florida|new york|illinois|ohio|georgia|colorado|arizona|nevada|washington|pennsylvania|michigan|north carolina|tennessee)$/i;
+            if (stateLevelPatterns.test(location.trim())) {
+                if (!confirm(`⚠️ Scanning all of "${location}" may return 10,000+ results and take several minutes. Consider a more specific location like "Austin, TX" or "Dallas, TX". Continue anyway?`)) {
+                    return;
+                }
+            }
+
             // Reset state
             if (eventSource) { eventSource.close(); }
             allProperties = [];
@@ -948,6 +1104,7 @@
             document.getElementById('filters').style.display = 'flex';
             document.getElementById('view-title').textContent = `Scanning ${location}...`;
             document.getElementById('stat-live').textContent = '0';
+            document.getElementById('data-notice').style.display = 'block';
 
             // Reset stats
             document.getElementById('stat-total').textContent = '0';
@@ -1073,6 +1230,26 @@
 
             const scoreColor = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : '#ff4466';
 
+            // Comp confidence (new numeric + label fields)
+            const confLabel = prop.comp_confidence_label || 'MEDIUM';
+            const confColor = {HIGH:'var(--green)', MEDIUM:'var(--amber)', LOW:'#ff4466'}[confLabel] || 'var(--text-muted)';
+            const confNum = prop.comp_confidence != null ? (prop.comp_confidence * 100).toFixed(0) : null;
+
+            // Style badge
+            const styleBadge = prop.style ? `<span class="badge" style="font-size:0.65rem;border-color:rgba(255,255,255,0.1);color:var(--text-muted);">${prop.style}</span>` : '';
+
+            // LOW COMPS badge (when confidence is LOW from expanded search)
+            const lowCompsBadge = confLabel === 'LOW' && confNum !== null
+                ? `<span class="badge" style="color:#ff4466;border-color:rgba(255,68,102,0.3);font-size:0.6rem;" title="Comp confidence: ${confNum}% — ${(prop.comp_lookback_used || 180)}d lookback">⚠ LOW COMPS</span>`
+                : confLabel === 'MEDIUM'
+                    ? `<span class="badge" style="color:var(--amber);border-color:rgba(255,170,0,0.3);font-size:0.6rem;" title="Comp confidence: ${confNum || '?'}%">⚡ MED COMPS</span>`
+                    : '';
+
+            // Acres display for land (red if NULL)
+            const acresDisplay = prop.scan_type === 'land' 
+                ? (prop.acres ? `${prop.acres} ac` : '<span style="color:#ff4466">? acres</span>') 
+                : null;
+
             // Build flags
             let flagsHtml = '';
             const redFlags = prop.brain_red_flags || [];
@@ -1094,9 +1271,15 @@
             card.dataset.tier = tier;
             card.dataset.score = score;
 
-            card.innerHTML = `
-                <div class="prop-card-header" onclick="toggleExpand('${prop.listing_id}')">
-                    <div class="prop-address">${prop.address || 'N/A'}</div>
+            card.innerHTML = `                    <div class="prop-card-header" onclick="toggleExpand('${prop.listing_id}')">
+                    <div class="prop-address">
+                        ${prop.address || 'N/A'}
+                        <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem;">
+                            ${styleBadge}
+                            ${lowCompsBadge}
+                            ${acresDisplay ? `<span style="color:${prop.acres ? 'var(--text-muted)' : '#ff4466'}">${acresDisplay}</span>` : ''}
+                        </div>
+                    </div>
                     <div class="prop-meta">
                         ${isHot ? '<span class="badge badge-hot">🔥 HOT</span>' : ''}
                         ${isWarm && !isHot ? '<span class="badge badge-warm">🌡 WARM</span>' : ''}
@@ -1118,8 +1301,8 @@
                         </span>
                     </span>
                     <span class="item">
-                        <span class="label">DOM</span>
-                        <span class="value white">${prop.days_on_market || '?'}</span>
+                        <span class="label">Listed</span>
+                        <span class="value white" title="Days on market">${prop.days_on_market ? prop.days_on_market + 'd ago' : '?'}</span>
                     </span>
                     <span class="item">
                         <span class="label">Beds/Baths</span>
@@ -1168,8 +1351,8 @@
                             <span class="value white">${prop.year_built || 'N/A'}</span>
                         </div>
                         <div class="detail-item">
-                            <span class="label">DOM</span>
-                            <span class="value white">${prop.days_on_market || '?'}</span>
+                            <span class="label">Days Listed</span>
+                            <span class="value white">${prop.days_on_market ? prop.days_on_market + ' days' : '?'}</span>
                         </div>
                         <div class="detail-item">
                             <span class="label">City</span>
@@ -1188,6 +1371,18 @@
                             <span class="value">${prop.estimated_value ? '$' + prop.estimated_value.toLocaleString() : 'N/A'}</span>
                         </div>
                     </div>
+
+                    ${prop.comp_confidence === 'LOW' && prop.comp_count < 5 ? `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
+                        ⚠ Only ${prop.comp_count} comps found — score may be unreliable
+                    </div>
+                    ` : ''}
+
+                    ${prop.scan_type === 'land' && !prop.acres ? `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
+                        ⚠ Acreage unknown — land score is approximate
+                    </div>
+                    ` : ''}
 
                     <!-- Segmented Score Bar -->
                     <div style="margin-top:0.75rem;">
@@ -1221,17 +1416,28 @@
                     </div>
                     ` : ''}
 
-                    <!-- Comp Info -->
-                    <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-muted);">
-                        Comp radius: ${prop.comp_radius_miles || '?'} mi |
-                        ${prop.comp_count || 0} comps |
-                        Median $${(prop.comp_median_price || 0).toLocaleString()}
-                        ${prop.comp_price_per_sqft_median ? '| Median $/sqft $' + prop.comp_price_per_sqft_median.toFixed(0) : ''}
+                    <!-- Comp Info - confidence colored -->
+                    <div style="margin-top:0.5rem;font-size:0.75rem;">
+                        ${prop.comp_count > 0 ? `
+                            <span style="color:${confColor};" title="Confidence: ${confNum || '?'}% · ${prop.comp_density || 'suburban'} ${prop.comp_category || 'residential'}">
+                                ${confLabel === 'LOW' ? '⚠ ' : ''}${prop.comp_count} comps · ${prop.comp_radius_used || prop.comp_radius_miles || '?'}mi · ${prop.comp_lookback_used || '?'}d
+                            </span>
+                            <span style="color:var(--text-dim);font-size:0.7rem;">
+                                · ${prop.comp_density || 'suburban'} ${prop.comp_category || 'residential'}
+                            </span>
+                        ` : '<span style="color:var(--text-dim);">No comps found</span>'}
                     </div>
+                    <div style="margin-top:0.15rem;font-size:0.7rem;color:var(--text-dim);">
+                        Median $${(prop.comp_median_price || 0).toLocaleString()}
+                        ${prop.comp_price_per_sqft_median ? '· Median $/sqft $' + prop.comp_price_per_sqft_median.toFixed(0) : ''}
+                    </div>
+
+                    <!-- Clickable Comp Listings -->
+                    ${renderCompListings(prop)}
 
                     <!-- Actions -->
                     <div class="detail-actions">
-                        <a class="btn-listing" href="${getListingUrl(prop)}" target="_blank" rel="noopener">🔗 View Listing</a>
+                        <a class="btn-listing" href="${getListingUrl(prop)}" target="_blank" rel="noopener">${getListingLabel(prop)}</a>
                         <button class="btn-save${isSaved ? ' saved' : ''}" onclick="toggleSave('${prop.listing_id}', this)">
                             ${isSaved ? '★ Saved' : '☆ Save'}
                         </button>
@@ -1492,8 +1698,10 @@
 
         // ─── Listing URL ────────────────────────────────────────────
         function getListingUrl(prop) {
-            // 1. Realtor.com detail URL (from HomeHarvest) — direct to listing
-            if (prop.property_url) return prop.property_url;
+            // 1. Realtor.com detail URL (now persisted to DB) — most reliable
+            if (prop.property_url && prop.property_url.startsWith('http')) {
+                return prop.property_url;
+            }
             // 2. Zillow detail URL (from Playwright scraper)
             if (prop.detail_url) return prop.detail_url;
             // 3. Zillow address search — Zillow will redirect to the listing if it exists
@@ -1506,6 +1714,80 @@
             // 4. Google Maps with full address as last resort
             const fullAddr = [prop.address, prop.city, prop.state, prop.zip].filter(Boolean).join(', ');
             return `https://www.google.com/maps/search/${encodeURIComponent(fullAddr || prop.address || '')}`;
+        }
+
+        function getListingLabel(prop) {
+            if (prop.property_url && prop.property_url.startsWith('http')) {
+                return '🔗 View on Realtor.com';
+            }
+            if (prop.detail_url) {
+                return '🔗 View on Zillow';
+            }
+            return '🔎 Search on Zillow';
+        }
+
+        // ─── Clickable Comp Listings ───────────────────────────────
+        function renderCompListings(prop) {
+            const comps = prop.comp_listings;
+            if (!comps || !Array.isArray(comps) || comps.length === 0) {
+                return `<div class="comp-listings-empty">No comp listing details available.</div>`;
+            }
+
+            let cards = '';
+            comps.forEach(c => {
+                const price = c.list_price || 0;
+                const addr = c.address || 'Unknown';
+                const url = getCompUrl(c, prop);
+                const bedsBaths = (c.beds || c.baths) ? `${c.beds || '?'}bd/${c.baths || '?'}ba` : '';
+                const sqft = c.sqft ? `${c.sqft.toLocaleString()}sf` : '';
+                const label = c.listing_status === 'sold' ? 'SOLD' : 'ACTIVE';
+                const labelColor = c.listing_status === 'sold' ? 'rgba(255,68,102,0.08)' : 'rgba(68,255,102,0.08)';
+                const labelBorder = c.listing_status === 'sold' ? 'rgba(255,68,102,0.1)' : 'rgba(68,255,102,0.1)';
+                const labelTextColor = c.listing_status === 'sold' ? '#ff4466' : '';
+
+                const dist = c.distance_miles ? `${c.distance_miles.toFixed(1)}mi` : '';
+
+                cards += `
+                    <a class="comp-card" href="${url}" target="_blank" rel="noopener" title="Open ${addr} in new tab">
+                        <span class="comp-open-icon">↗</span>
+                        <div class="comp-addr">${addr.length > 30 ? addr.slice(0, 28) + '...' : addr}</div>
+                        <div class="comp-price">$${price.toLocaleString()}</div>
+                        <div class="comp-meta">
+                            ${bedsBaths ? `<span>${bedsBaths}</span>` : ''}
+                            ${sqft ? `<span>${sqft}</span>` : ''}
+                            ${dist ? `<span>${dist}</span>` : ''}
+                        </div>
+                        <span class="comp-label" style="background:${labelColor};border-color:${labelBorder};color:${labelTextColor};">${label}</span>
+                    </a>
+                `;
+            });
+
+            return `
+                <div class="comp-listings">
+                    <div class="comp-header">
+                        <span>📊 Comparable Sales <span class="comp-count-badge">Top ${comps.length} of ${prop.comp_count || comps.length}</span></span>
+                        <span style="font-size:0.65rem;color:var(--text-dim);">click comp to open ↗</span>
+                    </div>
+                    <div class="comp-scroll">${cards}</div>
+                </div>
+            `;
+        }
+
+        function getCompUrl(comp, parentProp) {
+            // 1. Direct property URL from HomeHarvest
+            if (comp.property_url && comp.property_url.startsWith('http')) {
+                return comp.property_url;
+            }
+            // 2. Zillow address search — most reliable fallback, Zillow redirects to the listing
+            const city = (comp.city || parentProp.city || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
+            const state = (comp.state || parentProp.state || '').toLowerCase();
+            const addr = (comp.address || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
+            if (city && state && addr) {
+                return `https://www.zillow.com/homes/${addr}_${city}_${state}_rb/`;
+            }
+            // 3. Google Maps as last resort
+            const fullAddr = [comp.address, comp.city, comp.state, parentProp.zip].filter(Boolean).join(', ');
+            return `https://www.google.com/maps/search/${encodeURIComponent(fullAddr || comp.address || '')}`;
         }
 
         // ─── Init ───────────────────────────────────────────────────

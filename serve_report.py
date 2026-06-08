@@ -17,6 +17,10 @@ import sys
 
 # Ensure web app is importable
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "regog"))
+
+from db.database import init_db
+init_db()  # Run migrations to ensure schema is up-to-date
 
 from web.app import app
 
