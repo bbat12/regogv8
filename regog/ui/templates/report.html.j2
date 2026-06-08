@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REGOG — Scan Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* ─── Reset & Base ─────────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #0a0a0a;
+            color: #e8e8f0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ─── Typography ────────────────────────────────────────────────── */
+        h1, h2, h3, h4 {
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #ff2233 0%, #ff4466 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h2 {
+            color: #ffffff;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        h3 {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        /* ─── Layout ───────────────────────────────────────────────────── */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* ─── Header ────────────────────────────────────────────────────── */
+        .header {
+            background: #111111;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9rem;
+        }
+
+        .header-details {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.85rem;
+        }
+
+        .header-details strong {
+            color: #ffffff;
+        }
+
+        .header-details .value {
+            color: #ff4466;
+        }
+
+        /* ─── Stats Bar ──────────────────────────────────────────────────── */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: #111111;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 1.25rem;
+            text-align: center;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .stat-number {
+            font-family: 'Orbitron', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            display: block;
+        }
+
+        .stat-label {
+            color: rgba(255, 255, 255, 0.35);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-top: 0.25rem;
+        }
+
+        .stat-hot .stat-number { color: #ff2233; }
+        .stat-warm .stat-number { color: #ffaa00; }
+        .stat-neutral .stat-number { color: #aaaacc; }
+        .stat-avg .stat-number { color: #ff4466; }
+        .stat-total .stat-number { color: #ffffff; }
+
+        /* ─── Property Card ──────────────────────────────────────────────── */
+        .property-card {
+            background: #111111;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .property-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+        }
+
+        .property-card.hot {
+            border-color: rgba(255, 34, 51, 0.3);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 0 18px rgba(255, 34, 51, 0.15);
+        }
+
+        .property-card.hot:hover {
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(255, 34, 51, 0.25);
+        }
+
+        .property-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .property-address {
+            font-size: 1.05rem;
+            font-weight: 500;
+            color: #ffffff;
+            flex: 1;
+        }
+
+        .property-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        /* ─── Badges ─────────────────────────────────────────────────────── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            background: #1a1a1a;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .badge-hot {
+            background: linear-gradient(135deg, #ff2233 0%, #cc0018 100%);
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(255, 34, 51, 0.4);
+            border: none;
+        }
+
+        .badge-warm {
+            background: linear-gradient(135deg, #ffaa00 0%, #cc8800 100%);
+            color: #000000;
+            border: none;
+        }
+
+        .badge-distressed {
+            background: linear-gradient(135deg, #ff00aa 0%, #cc0088 100%);
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(255, 0, 170, 0.3);
+            border: none;
+            animation: pulse 2s infinite;
+        }
+
+        .badge-score {
+            background: #1a1a1a;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        /* ─── Property Details Grid ──────────────────────────────────────── */
+        .property-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .detail-item {
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .detail-label {
+            color: rgba(255, 255, 255, 0.35);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-value {
+            color: #ff4466;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .detail-value.green { color: #44ff66; }
+        .detail-value.white { color: #ffffff; }
+        .detail-value.amber { color: #ffaa00; }
+
+        /* ─── Score Bar ──────────────────────────────────────────────────── */
+        .score-bar-container {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .score-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        /* ─── Flags ──────────────────────────────────────────────────────── */
+        .flags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .flag {
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .flag-red {
+            background: rgba(255, 34, 51, 0.15);
+            color: #ff4466;
+            border: 1px solid rgba(255, 34, 51, 0.2);
+        }
+
+        .flag-green {
+            background: rgba(68, 255, 102, 0.1);
+            color: #44ff66;
+            border: 1px solid rgba(68, 255, 102, 0.15);
+        }
+
+        /* ─── Notes ──────────────────────────────────────────────────────── */
+        .property-notes {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: #0a0a0a;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.85rem;
+            font-style: italic;
+        }
+
+        /* ─── Footer ──────────────────────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: rgba(255, 255, 255, 0.25);
+            font-size: 0.8rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            margin-top: 2rem;
+        }
+
+        /* ─── Responsive ─────────────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            .header-top { flex-direction: column; align-items: flex-start; }
+            .property-header { flex-direction: column; }
+            .stats-bar { grid-template-columns: repeat(2, 1fr); }
+            .property-details { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <div>
+                    <h1>⫸ REGOG</h1>
+                    <div class="header-subtitle">Real Estate Go / No-Go Scanner</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="color: rgba(255,255,255,0.6); font-size: 0.85rem;">{{ generated_at[:10] }}</div>
+                    <div style="color: #ff4466; font-family: 'Orbitron', monospace; font-size: 0.75rem;">v1.0</div>
+                </div>
+            </div>
+            <div class="header-details">
+                <span>Session: <strong>{{ session.get('id', 'N/A') }}</strong></span>
+                <span>Type: <span class="value">{{ session.get('scan_type', 'N/A').capitalize() }}</span></span>
+                <span>Params: <span class="value">{{ session.get('search_params', '{}') }}</span></span>
+            </div>
+        </header>
+
+        <!-- Stats Bar -->
+        <div class="stats-bar">
+            <div class="stat-card stat-total">
+                <span class="stat-number">{{ stats.total }}</span>
+                <span class="stat-label">Total Properties</span>
+            </div>
+            <div class="stat-card stat-hot">
+                <span class="stat-number">{{ stats.hot }}</span>
+                <span class="stat-label">🔥 HOT Leads</span>
+            </div>
+            <div class="stat-card stat-warm">
+                <span class="stat-number">{{ stats.warm }}</span>
+                <span class="stat-label">🌡 WARM Leads</span>
+            </div>
+            <div class="stat-card stat-neutral">
+                <span class="stat-number">{{ stats.neutral }}</span>
+                <span class="stat-label">⚪ Neutral</span>
+            </div>
+            <div class="stat-card stat-avg">
+                <span class="stat-number">{{ stats.avg_score }}</span>
+                <span class="stat-label">Avg Score</span>
+            </div>
+        </div>
+
+        <!-- Properties -->
+        <div style="margin-bottom: 1rem;">
+            <h2 style="font-size: 1.1rem; color: rgba(255,255,255,0.6);">Properties ({{ properties|length }})</h2>
+        </div>
+
+        {% for prop in properties %}
+        {% set tier = prop.get('lead_tier', 'SKIP') %}
+        {% set score = prop.get('score_total') or 0 %}
+        <div class="property-card {% if tier == 'HOT' %}hot{% endif %}">
+            <div class="property-header">
+                <div class="property-address">{{ prop.get('address', 'N/A') }}</div>
+                <div class="property-meta">
+                    {% if tier == 'HOT' %}
+                    <span class="badge badge-hot">🔥 HOT</span>
+                    {% elif tier == 'WARM' %}
+                    <span class="badge badge-warm">🌡 WARM</span>
+                    {% elif tier.startswith('DISTRESSED') %}
+                    <span class="badge badge-distressed">💀 {{ tier }}</span>
+                    {% elif tier == 'RISKY' %}
+                    <span class="badge" style="background: rgba(255,0,170,0.15); color: #ff44aa; border-color: rgba(255,0,170,0.2);">⚠️ RISKY</span>
+                    {% else %}
+                    <span class="badge" style="color: rgba(255,255,255,0.5);">⚪ {{ tier }}</span>
+                    {% endif %}
+                    <span class="badge badge-score" style="color: 
+                        {% if score >= 70 %}#44ff66
+                        {% elif score >= 50 %}#ffaa00
+                        {% elif score >= 35 %}#aaaacc
+                        {% elif score >= 20 %}#ff44aa
+                        {% else %}rgba(255,255,255,0.3)
+                        {% endif %}">
+                        {{ "%.1f"|format(score) }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="property-details">
+                <div class="detail-item">
+                    <span class="detail-label">Price</span>
+                    <span class="detail-value">${{ "{:,}".format(prop.get('list_price') or 0) }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">vs Median</span>
+                    {% set dev = prop.get('price_deviation_pct') %}
+                    <span class="detail-value {% if dev is not none and dev < 0 %}green{% else %}white{% endif %}">
+                        {{ "{:+.1f}%".format(dev) if dev is not none else 'N/A' }}
+                    </span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Beds / Baths</span>
+                    <span class="detail-value white">{{ prop.get('beds') or '?' }} / {{ prop.get('baths') or '?' }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Sqft</span>
+                    <span class="detail-value">{{ "{:,}".format(prop.get('sqft')) if prop.get('sqft') else 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">$/Sqft</span>
+                    <span class="detail-value">${{ "{:,.0f}".format(prop.get('price_per_sqft')) if prop.get('price_per_sqft') else 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">DOM</span>
+                    <span class="detail-value white">{{ prop.get('days_on_market') or '?' }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Type</span>
+                    <span class="detail-value white">{{ prop.get('scan_type', '?').capitalize() }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Year Built</span>
+                    <span class="detail-value white">{{ prop.get('year_built') or 'N/A' }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Comp Count</span>
+                    <span class="detail-value white">{{ prop.get('comp_count') or 0 }}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">Comp Median</span>
+                    <span class="detail-value">${{ "{:,}".format(prop.get('comp_median_price')) if prop.get('comp_median_price') else 'N/A' }}</span>
+                </div>
+            </div>
+
+            <!-- Score Bar -->
+            <div class="score-bar-container">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
+                    <span style="color: rgba(255,255,255,0.35);">Score Breakdown</span>
+                    <span style="color: rgba(255,255,255,0.5);">{{ "%.1f"|format(score) }}/100</span>
+                </div>
+                {% set score_color = '#44ff66' if score >= 70 else '#ffaa00' if score >= 50 else '#ff4466' %}
+                <div class="score-bar">
+                    <div class="score-bar-fill" style="width: {{ score }}%; background: {{ score_color }};"></div>
+                </div>
+            </div>
+
+            <!-- Flags -->
+            {% set red_flags = prop.get('brain_red_flags') %}
+            {% set green_flags = prop.get('brain_green_flags') %}
+            {% if red_flags or green_flags %}
+            <div class="flags-container">
+                {% if red_flags %}
+                    {% for flag in red_flags[:3] %}
+                    <span class="flag flag-red">⚠ {{ flag }}</span>
+                    {% endfor %}
+                {% endif %}
+                {% if green_flags %}
+                    {% for flag in green_flags[:3] %}
+                    <span class="flag flag-green">✓ {{ flag }}</span>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- Notes -->
+            {% set notes = prop.get('brain_classification') %}
+            {% if notes and notes != 'standard' %}
+            <div class="property-notes">
+                Classified as <strong style="color: #ff4466;">{{ notes }}</strong>
+                {% set motivation = prop.get('brain_seller_motivation') %}
+                {% if motivation and motivation == 'high' %}
+                — <strong style="color: #ffaa00;">High seller motivation</strong>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        <!-- Footer -->
+        <div class="footer">
+            REGOG v1.0 — Generated {{ generated_at[:19] }}<br>
+            Real Estate Go / No-Go Scanner — All data from public sources
+        </div>
+    </div>
+</body>
+</html>

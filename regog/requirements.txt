@@ -1,0 +1,29 @@
+# REGOG - Real Estate Go/No-Go Scanner
+# Python 3.11+
+
+# Scraping
+homeharvest>=0.8.0
+beautifulsoup4>=4.12.0
+httpx>=0.25.0
+lxml>=4.9.0
+
+# Database
+aiosqlite>=0.19.0
+sqlite-utils>=3.36
+
+# Terminal UI
+rich>=13.0.0
+
+# Geocoding
+geopy>=2.3.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# HTML Reports
+jinja2>=3.1.0
+
+# Playwright for Zillow/JS-heavy site scraping
+playwright>=1.40.0
+# playwright-stealth>=1.0.6  # Optional — uncomment for extra anti-bot protection
+#   Note: playwright-stealth is unmaintained; the Zillow scraper degrades gracefully without it.

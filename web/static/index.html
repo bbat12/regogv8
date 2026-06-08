@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REGOG — Real Estate Go/No-Go Scanner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* ─── Reset & Base ─────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0a;
+            --bg-surface: #111111;
+            --bg-card: #111118;
+            --bg-hover: #1a1a22;
+            --accent: #ff2233;
+            --accent-glow: rgba(255, 34, 51, 0.4);
+            --accent-dim: rgba(255, 34, 51, 0.15);
+            --text: #e8e8f0;
+            --text-muted: #888899;
+            --text-dim: rgba(255, 255, 255, 0.35);
+            --border: rgba(255, 255, 255, 0.06);
+            --green: #44ff66;
+            --amber: #ffaa00;
+            --magenta: #ff44aa;
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3, h4 {
+            font-family: 'Orbitron', monospace;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        /* ─── Scrollbar ────────────────────────────────────────────── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* ─── Layout ───────────────────────────────────────────────── */
+        .app {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+        }
+
+        /* ─── Header ───────────────────────────────────────────────── */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .logo {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.6rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--accent) 0%, #ff4466 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-decoration: none;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .logo:hover { opacity: 0.8; }
+
+        .logo-badge {
+            font-size: 0.65rem;
+            font-family: 'Inter', sans-serif;
+            color: var(--text-muted);
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            -webkit-text-fill-color: var(--text-muted);
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .nav-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 0.4rem 1rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+
+        .nav-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+            background: var(--accent-dim);
+        }
+
+        .nav-btn.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+        }
+
+        .nav-btn .count {
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.65rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 999px;
+            margin-left: 0.3rem;
+        }
+
+        .back-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 0.4rem 1rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+            display: none;
+        }
+
+        .back-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+            background: var(--accent-dim);
+        }
+
+        /* ─── Scan Bar ─────────────────────────────────────────────── */
+        .scan-bar {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: flex-end;
+        }
+
+        .scan-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .scan-field label {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .scan-field input,
+        .scan-field select {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.5rem 0.75rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            transition: border-color 0.2s;
+            min-width: 120px;
+        }
+
+        .scan-field input:focus,
+        .scan-field select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-dim);
+        }
+
+        .scan-field input::placeholder {
+            color: var(--text-dim);
+        }
+
+        .scan-field select option {
+            background: var(--bg-surface);
+            color: var(--text);
+        }
+
+        .scan-btn {
+            background: linear-gradient(135deg, var(--accent) 0%, #cc0018 100%);
+            color: #fff;
+            border: none;
+            padding: 0.5rem 2rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'Orbitron', monospace;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.04em;
+            height: 38px;
+            box-shadow: 0 0 12px var(--accent-dim);
+        }
+
+        .scan-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .scan-btn:active {
+            transform: translateY(0);
+        }
+
+        .scan-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .scan-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .scan-status .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Stats Bar ────────────────────────────────────────────── */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 0.75rem 1rem;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.3rem;
+            font-weight: 700;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-top: 0.15rem;
+        }
+
+        .stat-hot .stat-number { color: var(--accent); }
+        .stat-warm .stat-number { color: var(--amber); }
+        .stat-avg .stat-number { color: #ff4466; }
+        .stat-total .stat-number { color: var(--text); }
+        .stat-live .stat-number { color: var(--green); }
+        .stat-live .stat-label { color: var(--green); }
+
+        /* ─── View Switcher ────────────────────────────────────────── */
+        .view-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+
+        .view-bar .title {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            flex: 1;
+        }
+
+        .view-bar .filters {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 999px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .filter-btn.active {
+            background: var(--accent-dim);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ─── Results Grid ─────────────────────────────────────────── */
+        .results {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .results-empty {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-dim);
+        }
+
+        .results-empty .big-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+        .results-empty h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-muted);
+        }
+        .results-empty p {
+            font-size: 0.85rem;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        /* ─── Property Card ────────────────────────────────────────── */
+        .prop-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1rem 1.25rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .prop-card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .prop-card.hot {
+            border-color: rgba(255, 34, 51, 0.3);
+            box-shadow: 0 0 12px rgba(255, 34, 51, 0.08);
+        }
+
+        .prop-card.hot:hover {
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 18px rgba(255, 34, 51, 0.12);
+        }
+
+        .prop-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .prop-address {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: var(--text);
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .prop-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        /* ─── Badges ──────────────────────────────────────────────── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            border: 1px solid var(--border);
+        }
+
+        .badge-hot {
+            background: linear-gradient(135deg, var(--accent) 0%, #cc0018 100%);
+            color: #fff;
+            box-shadow: 0 0 8px var(--accent-glow);
+            border: none;
+        }
+
+        .badge-warm {
+            background: linear-gradient(135deg, var(--amber) 0%, #cc8800 100%);
+            color: #000;
+            border: none;
+        }
+
+        .badge-score {
+            font-family: 'Orbitron', monospace;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 0.15rem 0;
+            min-width: 36px;
+            text-align: center;
+        }
+
+        .badge-save {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            padding: 0.15rem 0.4rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 999px;
+        }
+
+        .badge-save:hover {
+            border-color: var(--accent);
+        }
+
+        .badge-save.saved {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* ─── Card Row (compact data) ─────────────────────────────── */
+        .prop-card-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .prop-card-row .item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .prop-card-row .item .label {
+            color: var(--text-dim);
+        }
+
+        .prop-card-row .item .value {
+            color: #ff4466;
+            font-weight: 500;
+        }
+        .prop-card-row .item .value.green { color: var(--green); }
+        .prop-card-row .item .value.amber { color: var(--amber); }
+        .prop-card-row .item .value.white { color: var(--text); }
+
+        /* ─── Score bar on card ───────────────────────────────────── */
+        .card-score-bar {
+            height: 3px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 0.6rem;
+        }
+
+        .card-score-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        /* ─── Expanded Detail ─────────────────────────────────────── */
+        .prop-detail {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+            display: none;
+        }
+
+        .prop-card.expanded .prop-detail {
+            display: block;
+            animation: slideIn 0.25s ease-out;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .detail-item {
+            background: var(--bg);
+            border-radius: var(--radius-sm);
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+        }
+
+        .detail-item .label {
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            display: block;
+            margin-bottom: 0.2rem;
+        }
+
+        .detail-item .value {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #ff4466;
+        }
+        .detail-item .value.green { color: var(--green); }
+        .detail-item .value.white { color: var(--text); }
+        .detail-item .value.amber { color: var(--amber); }
+
+        /* ─── Segmented Score Bar ─────────────────────────────────── */
+        .segmented-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 0.75rem 0;
+            gap: 2px;
+        }
+
+        .segmented-bar .segment {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        .score-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+
+        .score-legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .score-legend .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+        }
+
+        /* ─── Flags ───────────────────────────────────────────────── */
+        .flags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-top: 0.75rem;
+        }
+
+        .flag {
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .flag-red {
+            background: rgba(255, 34, 51, 0.12);
+            color: #ff4466;
+            border: 1px solid rgba(255, 34, 51, 0.15);
+        }
+
+        .flag-green {
+            background: rgba(68, 255, 102, 0.08);
+            color: var(--green);
+            border: 1px solid rgba(68, 255, 102, 0.12);
+        }
+
+        .flag-brain {
+            background: rgba(255, 68, 170, 0.1);
+            color: var(--magenta);
+            border: 1px solid rgba(255, 68, 170, 0.15);
+        }
+
+        /* ─── Detail Actions ───────────────────────────────────────── */
+        .detail-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .detail-actions a,
+        .detail-actions button {
+            padding: 0.4rem 1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-listing {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+        }
+
+        .btn-listing:hover {
+            background: #cc0018;
+        }
+
+        .btn-save {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        .btn-save:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-save.saved {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* ─── History Panel ───────────────────────────────────────── */
+        .panel {
+            display: none;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .panel.active { display: block; }
+
+        .panel h2 {
+            font-size: 1rem;
+            color: var(--text);
+            margin-bottom: 1rem;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .history-item:last-child { border-bottom: none; }
+        .history-item:hover { background: var(--accent-dim); margin: 0 -0.75rem; padding: 0.75rem; border-radius: var(--radius-sm); }
+
+        .history-item .h-left .h-location {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .history-item .h-left .h-date {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .history-item .h-right {
+            text-align: right;
+            font-size: 0.8rem;
+        }
+        .history-item .h-right .h-hot {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .saved-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* ─── Loading / Error States ───────────────────────────────── */
+        .scanning-message {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .scanning-message .pulse {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse 1.5s ease-in-out infinite;
+            margin-bottom: 0.5rem;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.3); }
+        }
+
+        .error-message {
+            background: rgba(255, 34, 51, 0.1);
+            border: 1px solid rgba(255, 34, 51, 0.2);
+            color: #ff4466;
+            padding: 1rem;
+            border-radius: var(--radius-sm);
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+
+        /* ─── Scan completion banner ──────────────────────────────── */
+        .scan-complete-banner {
+            background: rgba(68, 255, 102, 0.05);
+            border: 1px solid rgba(68, 255, 102, 0.15);
+            border-radius: var(--radius-sm);
+            padding: 0.75rem 1rem;
+            color: var(--green);
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        .scan-complete-banner strong { color: var(--text); }
+
+        /* ─── Responsive ──────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .app { padding: 1rem; }
+            .scan-bar { flex-direction: column; }
+            .scan-field { width: 100%; }
+            .scan-field input,
+            .scan-field select { width: 100%; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .prop-card-header { flex-direction: column; }
+            .detail-grid { grid-template-columns: repeat(2, 1fr); }
+            .stats-bar { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="app" id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="logo" onclick="location.href='/'" title="REGOG Home">⫸ REGOG <span class="logo-badge">v1.0</span></span>
+            </div>
+            <div class="header-right">
+                <button class="back-btn" onclick="goHome()" id="back-btn">← Back</button>
+                <button class="nav-btn" onclick="togglePanel('history')" id="btn-history">📋 History</button>
+                <button class="nav-btn" onclick="togglePanel('saved')" id="btn-saved">⭐ Saved <span class="count" id="saved-count">0</span></button>
+            </div>
+        </header>
+
+        <!-- Scan Bar -->
+        <div class="scan-bar">
+            <div class="scan-field">
+                <label>City, State</label>
+                <input type="text" id="location" placeholder="e.g. Phoenix, AZ" value="Dallas, TX">
+            </div>
+            <div class="scan-field">
+                <label>Type</label>
+                <select id="scan-type">
+                    <option value="residential">🏠 Residential</option>
+                    <option value="land">🌲 Land</option>
+                    <option value="commercial">🏢 Commercial</option>
+                </select>
+            </div>
+            <div class="scan-field">
+                <label>Min Price</label>
+                <input type="number" id="price-min" placeholder="e.g. 50000" value="50000">
+            </div>
+            <div class="scan-field">
+                <label>Max Price</label>
+                <input type="number" id="price-max" placeholder="e.g. 400000" value="400000">
+            </div>
+            <div class="scan-field">
+                <label>&nbsp;</label>
+                <button class="scan-btn" id="scan-btn" onclick="startScan()">SCAN</button>
+            </div>
+            <div class="scan-status" id="scan-status" style="display:none;">
+                <div class="spinner"></div>
+                <span id="status-text">Scanning...</span>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-bar" id="stats-bar" style="display:none;">
+            <div class="stat-card stat-total">
+                <span class="stat-number" id="stat-total">0</span>
+                <span class="stat-label">Total</span>
+            </div>
+            <div class="stat-card stat-hot">
+                <span class="stat-number" id="stat-hot">0</span>
+                <span class="stat-label">🔥 HOT</span>
+            </div>
+            <div class="stat-card stat-warm">
+                <span class="stat-number" id="stat-warm">0</span>
+                <span class="stat-label">🌡 WARM</span>
+            </div>
+            <div class="stat-card stat-avg">
+                <span class="stat-number" id="stat-avg">0</span>
+                <span class="stat-label">Avg Score</span>
+            </div>
+            <div class="stat-card stat-live" id="live-stat" style="display:none;">
+                <span class="stat-number" id="stat-live">0</span>
+                <span class="stat-label">Scanned</span>
+            </div>
+        </div>
+
+        <!-- History Panel -->
+        <div class="panel" id="panel-history">
+            <h2>📋 Scan History</h2>
+            <div id="history-list"><p style="color:var(--text-dim);font-size:0.85rem;">Loading...</p></div>
+        </div>
+
+        <!-- Saved Panel -->
+        <div class="panel" id="panel-saved">
+            <h2>⭐ Saved Properties</h2>
+            <div id="saved-list"><p style="color:var(--text-dim);font-size:0.85rem;">No saved properties yet. Star a property to save it.</p></div>
+        </div>
+
+        <!-- Complete Banner -->
+        <div class="scan-complete-banner" id="complete-banner">
+            ✓ Scan complete! Found <strong id="complete-total">0</strong> properties,
+            <strong id="complete-hot" style="color:var(--accent);">0</strong> 🔥 HOT leads
+        </div>
+
+        <!-- Error -->
+        <div class="error-message" id="error-msg" style="display:none;"></div>
+
+        <!-- View Bar -->
+        <div class="view-bar">
+            <span class="title" id="view-title">Enter a location and click SCAN to find deals</span>
+            <div class="filters" id="filters" style="display:none;">
+                <button class="filter-btn active" onclick="filterTier('all')" id="f-all">All</button>
+                <button class="filter-btn" onclick="filterTier('HOT')" id="f-HOT">🔥 HOT</button>
+                <button class="filter-btn" onclick="filterTier('WARM')" id="f-WARM">🌡 WARM</button>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div class="results" id="results">
+            <div class="results-empty">
+                <div class="big-icon">⫸</div>
+                <h3>Ready to find deals</h3>
+                <p>Enter a city and price range above, then hit <strong>SCAN</strong>. The engine will pull listings, calculate comps, and score every property in seconds.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ─── State ──────────────────────────────────────────────────
+        let currentSessionId = null;
+        let eventSource = null;
+        let allProperties = [];
+        let savedListingIds = new Set();
+        let currentFilter = 'all';
+        let scanActive = false;
+        let scanCompleted = false;  // guard against double-fire
+
+        // ─── Scan ───────────────────────────────────────────────────
+        async function startScan() {
+            const location = document.getElementById('location').value.trim();
+            const scanType = document.getElementById('scan-type').value;
+            const priceMin = parseInt(document.getElementById('price-min').value) || null;
+            const priceMax = parseInt(document.getElementById('price-max').value) || null;
+
+            if (!location) {
+                showError('Please enter a location');
+                return;
+            }
+
+            // Reset state
+            if (eventSource) { eventSource.close(); }
+            allProperties = [];
+            currentFilter = 'all';
+            scanActive = true;
+
+            document.getElementById('scan-btn').disabled = true;
+            document.getElementById('scan-btn').textContent = '...';
+            document.getElementById('scan-status').style.display = 'flex';
+            document.getElementById('status-text').textContent = 'Starting scan...';
+            document.getElementById('error-msg').style.display = 'none';
+            document.getElementById('complete-banner').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('stats-bar').style.display = 'grid';
+            document.getElementById('filters').style.display = 'flex';
+            document.getElementById('view-title').textContent = `Scanning ${location}...`;
+            document.getElementById('stat-live').textContent = '0';
+
+            // Reset stats
+            document.getElementById('stat-total').textContent = '0';
+            document.getElementById('stat-hot').textContent = '0';
+            document.getElementById('stat-warm').textContent = '0';
+            document.getElementById('stat-avg').textContent = '0';
+            document.getElementById('live-stat').style.display = 'block';
+
+            try {
+                // Start scan
+                const resp = await fetch('/api/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        location: location,
+                        scan_type: scanType,
+                        price_min: priceMin,
+                        price_max: priceMax,
+                        skip_flood: true,
+                        use_zillow: false,
+                    }),
+                });
+
+                const data = await resp.json();
+                if (data.error) {
+                    showError(data.error);
+                    resetScanButton();
+                    return;
+                }
+
+                currentSessionId = data.session_id;
+                document.getElementById('status-text').textContent = 'Scanning...';
+
+                // Open SSE stream
+                eventSource = new EventSource(`/api/scan/${currentSessionId}/stream`);
+
+                eventSource.addEventListener('property', (e) => {
+                    const prop = JSON.parse(e.data);
+                    addProperty(prop);
+                });
+
+                eventSource.addEventListener('complete', (e) => {
+                    const status = JSON.parse(e.data);
+                    onScanComplete(status);
+                });
+
+                eventSource.addEventListener('error', () => {
+                    // SSE will auto-reconnect; if scan is done, close it
+                });
+
+                // Also poll status as fallback
+                pollStatus();
+
+            } catch (err) {
+                showError('Failed to start scan: ' + err.message);
+                resetScanButton();
+            }
+        }
+
+        function pollStatus() {
+            if (!currentSessionId || !scanActive) return;
+
+            fetch(`/api/scan/${currentSessionId}/status`)
+                .then(r => r.json())
+                .then(status => {
+                    if (status.status === 'completed' || status.status === 'error') {
+                        onScanComplete(status);
+                    } else if (status.status === 'running' || status.status === 'scanning') {
+                        if (status.progress > 0) {
+                            document.getElementById('stat-live').textContent = status.progress;
+                        }
+                        setTimeout(pollStatus, 2000);
+                    } else {
+                        setTimeout(pollStatus, 2000);
+                    }
+                })
+                .catch(() => setTimeout(pollStatus, 3000));
+        }
+
+        function onScanComplete(status) {
+            if (!scanActive || scanCompleted) return;
+            scanActive = false;
+            scanCompleted = true;
+
+            if (eventSource) { eventSource.close(); eventSource = null; }
+
+            document.getElementById('scan-status').style.display = 'none';
+            resetScanButton();
+            document.getElementById('live-stat').style.display = 'none';
+
+            const total = status.properties_found || allProperties.length || 0;
+            const hot = status.hot_leads || allProperties.filter(p => p.lead_tier === 'HOT').length || 0;
+
+            document.getElementById('complete-total').textContent = total;
+            document.getElementById('complete-hot').textContent = hot;
+            document.getElementById('complete-banner').style.display = 'block';
+            document.getElementById('back-btn').style.display = 'inline-flex';
+
+            document.getElementById('view-title').textContent =
+                `${total} properties scanned — ${hot} 🔥 HOT leads`;
+
+            updateStats();
+            loadHistory();
+            setTimeout(() => {
+                document.getElementById('complete-banner').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+
+        // ─── Add Property to Grid ───────────────────────────────────
+        function addProperty(prop) {
+            allProperties.push(prop);
+
+            const resultsEl = document.getElementById('results');
+            const emptyEl = resultsEl.querySelector('.results-empty');
+            if (emptyEl) emptyEl.remove();
+
+            const score = prop.score_total || 0;
+            const tier = prop.lead_tier || 'NEUTRAL';
+            const dev = prop.price_deviation_pct;
+            const isHot = tier === 'HOT';
+            const isWarm = tier === 'WARM';
+            const isSaved = savedListingIds.has(prop.listing_id);
+
+            const scoreColor = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : '#ff4466';
+
+            // Build flags
+            let flagsHtml = '';
+            const redFlags = prop.brain_red_flags || [];
+            const greenFlags = prop.brain_green_flags || [];
+            const classification = prop.brain_classification || '';
+            if (classification && classification !== 'standard' && classification !== 'land_only') {
+                flagsHtml += `<span class="flag flag-brain">🧠 ${classification}</span>`;
+            }
+            redFlags.slice(0, 2).forEach(f => {
+                flagsHtml += `<span class="flag flag-red">⚠ ${f}</span>`;
+            });
+            greenFlags.slice(0, 2).forEach(f => {
+                flagsHtml += `<span class="flag flag-green">✓ ${f}</span>`;
+            });
+
+            const card = document.createElement('div');
+            card.className = `prop-card${isHot ? ' hot' : ''}`;
+            card.id = `prop-${prop.listing_id}`;
+            card.dataset.tier = tier;
+            card.dataset.score = score;
+
+            card.innerHTML = `
+                <div class="prop-card-header" onclick="toggleExpand('${prop.listing_id}')">
+                    <div class="prop-address">${prop.address || 'N/A'}</div>
+                    <div class="prop-meta">
+                        ${isHot ? '<span class="badge badge-hot">🔥 HOT</span>' : ''}
+                        ${isWarm && !isHot ? '<span class="badge badge-warm">🌡 WARM</span>' : ''}
+                        <span class="badge badge-score" style="color:${scoreColor}">${score.toFixed(1)}</span>
+                        <button class="badge-save${isSaved ? ' saved' : ''}" onclick="event.stopPropagation(); toggleSave('${prop.listing_id}', this)">
+                            ${isSaved ? '★' : '☆'}
+                        </button>
+                    </div>
+                </div>
+                <div class="prop-card-row" onclick="toggleExpand('${prop.listing_id}')">
+                    <span class="item">
+                        <span class="label">Price</span>
+                        <span class="value white">$${(prop.list_price || 0).toLocaleString()}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">vs Median</span>
+                        <span class="value ${dev !== null && dev < 0 ? 'green' : ''}">
+                            ${dev !== null ? (dev < 0 ? '' : '+') + dev.toFixed(1) + '%' : 'N/A'}
+                        </span>
+                    </span>
+                    <span class="item">
+                        <span class="label">DOM</span>
+                        <span class="value white">${prop.days_on_market || '?'}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">Beds/Baths</span>
+                        <span class="value white">${prop.beds || '?'}/${prop.baths || '?'}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">Sqft</span>
+                        <span class="value">${prop.sqft ? prop.sqft.toLocaleString() : 'N/A'}</span>
+                    </span>
+                    ${prop.comp_count ? `<span class="item"><span class="label">Comps</span><span class="value white">${prop.comp_count}</span></span>` : ''}
+                </div>
+                ${flagsHtml ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flagsHtml}</div>` : ''}
+                <div class="card-score-bar" onclick="toggleExpand('${prop.listing_id}')">
+                    <div class="card-score-bar-fill" style="width:${Math.min(score, 100)}%;background:${scoreColor};"></div>
+                </div>
+                <div class="prop-detail" id="detail-${prop.listing_id}">
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <span class="label">List Price</span>
+                            <span class="value white">$${(prop.list_price || 0).toLocaleString()}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Comp Median</span>
+                            <span class="value">$${(prop.comp_median_price || 0).toLocaleString()}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">vs Median</span>
+                            <span class="value ${dev !== null && dev < 0 ? 'green' : ''}">
+                                ${dev !== null ? dev.toFixed(1) + '%' : 'N/A'}
+                            </span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">$/Sqft</span>
+                            <span class="value">$${prop.price_per_sqft ? prop.price_per_sqft.toFixed(0) : 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Beds / Baths</span>
+                            <span class="value white">${prop.beds || '?'} / ${prop.baths || '?'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Sqft</span>
+                            <span class="value">${prop.sqft ? prop.sqft.toLocaleString() : 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Year Built</span>
+                            <span class="value white">${prop.year_built || 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">DOM</span>
+                            <span class="value white">${prop.days_on_market || '?'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">City</span>
+                            <span class="value white">${prop.city || ''}, ${prop.state || ''}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Source</span>
+                            <span class="value white">${prop.source || 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Flood Zone</span>
+                            <span class="value">${prop.flood_zone || 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Est. Value</span>
+                            <span class="value">${prop.estimated_value ? '$' + prop.estimated_value.toLocaleString() : 'N/A'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Segmented Score Bar -->
+                    <div style="margin-top:0.75rem;">
+                        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-dim);margin-bottom:0.3rem;">
+                            <span>Score Breakdown (${score.toFixed(1)})</span>
+                        </div>
+                        <div class="segmented-bar">
+                            <div class="segment" style="width:${(prop.score_price_deviation || 0) / 100 * 100}%;background:var(--green);" title="Price Deviation: ${(prop.score_price_deviation || 0).toFixed(1)} pts"></div>
+                            <div class="segment" style="width:${(prop.score_assessor_gap || 0) / 100 * 100}%;background:#44aaff;" title="Assessor Gap: ${(prop.score_assessor_gap || 0).toFixed(1)} pts"></div>
+                            <div class="segment" style="width:${(prop.score_dom_signal || 0) / 100 * 100}%;background:var(--amber);" title="DOM Signal: ${(prop.score_dom_signal || 0).toFixed(1)} pts"></div>
+                            <div class="segment" style="width:${(prop.score_condition || 0) / 100 * 100}%;background:#aa44ff;" title="Condition: ${(prop.score_condition || 0).toFixed(1)} pts"></div>
+                            <div class="segment" style="width:${(prop.score_flood_penalty || 0) / 100 * 100}%;background:#ff4466;" title="Flood: ${(prop.score_flood_penalty || 0).toFixed(1)} pts"></div>
+                        </div>
+                        <div class="score-legend">
+                            <span class="legend-item"><span class="dot" style="background:var(--green);"></span> Price ${(prop.score_price_deviation || 0).toFixed(1)}</span>
+                            <span class="legend-item"><span class="dot" style="background:#44aaff;"></span> Assessor ${(prop.score_assessor_gap || 0).toFixed(1)}</span>
+                            <span class="legend-item"><span class="dot" style="background:var(--amber);"></span> DOM ${(prop.score_dom_signal || 0).toFixed(1)}</span>
+                            <span class="legend-item"><span class="dot" style="background:#aa44ff;"></span> Cond ${(prop.score_condition || 0).toFixed(1)}</span>
+                            <span class="legend-item"><span class="dot" style="background:#ff4466;"></span> Flood ${(prop.score_flood_penalty || 0).toFixed(1)}</span>
+                        </div>
+                    </div>
+
+                    <!-- Brain Output -->
+                    ${classification && classification !== 'standard' ? `
+                    <div style="margin-top:0.75rem;padding:0.5rem 0.75rem;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border);">
+                        <span style="font-size:0.7rem;color:var(--text-dim);">🧠 Brain Classification</span>
+                        <div style="margin-top:0.3rem;font-size:0.85rem;">
+                            <strong style="color:var(--magenta);">${classification}</strong>
+                            ${prop.brain_seller_motivation === 'high' ? '<span style="color:var(--amber);margin-left:0.5rem;">🔥 High seller motivation</span>' : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Comp Info -->
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-muted);">
+                        Comp radius: ${prop.comp_radius_miles || '?'} mi |
+                        ${prop.comp_count || 0} comps |
+                        Median $${(prop.comp_median_price || 0).toLocaleString()}
+                        ${prop.comp_price_per_sqft_median ? '| Median $/sqft $' + prop.comp_price_per_sqft_median.toFixed(0) : ''}
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="detail-actions">
+                        <a class="btn-listing" href="${getListingUrl(prop)}" target="_blank" rel="noopener">🔗 View Listing</a>
+                        <button class="btn-save${isSaved ? ' saved' : ''}" onclick="toggleSave('${prop.listing_id}', this)">
+                            ${isSaved ? '★ Saved' : '☆ Save'}
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // Insert in score order
+            let inserted = false;
+            for (const child of resultsEl.children) {
+                const childScore = parseFloat(child.dataset.score || 0);
+                if (score > childScore) {
+                    resultsEl.insertBefore(card, child);
+                    inserted = true;
+                    break;
+                }
+            }
+            if (!inserted) {
+                resultsEl.appendChild(card);
+            }
+
+            // Update live stats
+            updateStats();
+        }
+
+        // ─── Toggle Expand ──────────────────────────────────────────
+        function toggleExpand(listingId) {
+            const card = document.getElementById(`prop-${listingId}`);
+            if (card) {
+                card.classList.toggle('expanded');
+            }
+        }
+
+        // ─── Save Toggle ────────────────────────────────────────────
+        async function toggleSave(listingId, btn) {
+            const willSave = !btn.classList.contains('saved');
+            try {
+                const resp = await fetch(`/api/saved/${listingId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ saved: willSave }),
+                });
+                const data = await resp.json();
+
+                if (data.saved) {
+                    btn.classList.add('saved');
+                    btn.textContent = '★';
+                    savedListingIds.add(listingId);
+                } else {
+                    btn.classList.remove('saved');
+                    btn.textContent = '☆';
+                    savedListingIds.delete(listingId);
+                }
+                document.getElementById('saved-count').textContent = savedListingIds.size;
+            } catch (err) {
+                console.error('Save toggle failed:', err);
+            }
+        }
+
+        // ─── Filter ─────────────────────────────────────────────────
+        function filterTier(tier) {
+            currentFilter = tier;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`f-${tier === 'all' ? 'all' : tier}`).classList.add('active');
+
+            document.querySelectorAll('.prop-card').forEach(card => {
+                const cardTier = card.dataset.tier;
+                if (tier === 'all' || cardTier === tier) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        // ─── Stats ──────────────────────────────────────────────────
+        function updateStats() {
+            const total = allProperties.length;
+            const hot = allProperties.filter(p => p.lead_tier === 'HOT').length;
+            const warm = allProperties.filter(p => p.lead_tier === 'WARM').length;
+            const avg = total > 0 ? allProperties.reduce((s, p) => s + (p.score_total || 0), 0) / total : 0;
+
+            document.getElementById('stat-total').textContent = total;
+            document.getElementById('stat-hot').textContent = hot;
+            document.getElementById('stat-warm').textContent = warm;
+            document.getElementById('stat-avg').textContent = avg.toFixed(1);
+
+            if (scanActive) {
+                document.getElementById('stat-live').textContent = total;
+            }
+        }
+
+        // ─── Panels ─────────────────────────────────────────────────
+        function togglePanel(panel) {
+            const panelEl = document.getElementById(`panel-${panel}`);
+            const btn = document.getElementById(`btn-${panel}`);
+
+            if (panelEl.classList.contains('active')) {
+                panelEl.classList.remove('active');
+                btn.classList.remove('active');
+                return;
+            }
+
+            // Close other panels
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+            panelEl.classList.add('active');
+            btn.classList.add('active');
+
+            if (panel === 'history') loadHistory();
+            if (panel === 'saved') loadSaved();
+        }
+
+        async function loadHistory() {
+            const el = document.getElementById('history-list');
+            try {
+                const resp = await fetch('/api/scans');
+                const scans = await resp.json();
+                if (!scans.length) {
+                    el.innerHTML = '<p style="color:var(--text-dim);font-size:0.85rem;">No scans yet.</p>';
+                    return;
+                }
+                // Group by scan type
+                const groups = { residential: [], land: [], commercial: [] };
+                const typeIcons = { residential: '🏠', land: '🌲', commercial: '🏢' };
+                scans.forEach(s => {
+                    const stype = s.scan_type || 'residential';
+                    if (!groups[stype]) groups[stype] = [];
+                    groups[stype].push(s);
+                });
+                // Render grouped history
+                let html = '';
+                for (const [type, items] of Object.entries(groups)) {
+                    if (items.length === 0) continue;
+                    const icon = typeIcons[type] || '📋';
+                    const label = type.charAt(0).toUpperCase() + type.slice(1);
+                    html += `<h3 style="margin:1rem 0 0.5rem;font-size:0.9rem;color:var(--text);">${icon} ${label} <span style="color:var(--text-muted);font-size:0.75rem;">(${items.length} scan${items.length > 1 ? 's' : ''})</span></h3>`;
+                    items.forEach(s => {
+                        const params = s.search_params || {};
+                        const loc = params.location || 'Unknown';
+                        // Format date nicely: "Jun 8, 2026 3:45 PM"
+                        let dateStr = (s.started_at || '').slice(0, 19).replace('T', ' ');
+                        try {
+                            const d = new Date(s.started_at);
+                            dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                        } catch (e) {}
+                        html += `
+                            <div class="history-item" onclick="loadSession('${s.id}')">
+                                <div class="h-left">
+                                    <div class="h-location">${loc}</div>
+                                    <div class="h-date">${dateStr}</div>
+                                </div>
+                                <div class="h-right">
+                                    <div class="h-hot">${s.hot_leads_found || 0} 🔥</div>
+                                    <div style="font-size:0.75rem;color:var(--text-dim);">${s.properties_found || 0} props</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                el.innerHTML = html;
+            } catch (err) {
+                el.innerHTML = '<p style="color:#ff4466;font-size:0.85rem;">Failed to load history.</p>';
+            }
+        }
+
+        async function loadSession(sessionId) {
+            // Close panels
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+            try {
+                const resp = await fetch(`/api/scan/${sessionId}/results?per_page=100`);
+                const data = await resp.json();
+
+                if (data.properties) {
+                    allProperties = data.properties;
+                    document.getElementById('results').innerHTML = '';
+                    allProperties.forEach(p => addProperty(p));
+                    document.getElementById('stats-bar').style.display = 'grid';
+                    document.getElementById('filters').style.display = 'flex';
+                    document.getElementById('live-stat').style.display = 'none';
+                    document.getElementById('view-title').textContent =
+                        `Session ${sessionId} — ${allProperties.length} properties`;
+                }
+            } catch (err) {
+                showError('Failed to load session: ' + err.message);
+            }
+        }
+
+        async function loadSaved() {
+            const el = document.getElementById('saved-list');
+            try {
+                const resp = await fetch('/api/saved');
+                const data = await resp.json();
+                const props = data.properties || [];
+
+                if (!props.length) {
+                    el.innerHTML = '<p style="color:var(--text-dim);font-size:0.85rem;">No saved properties yet. Star a property to save it.</p>';
+                    return;
+                }
+
+                el.innerHTML = props.map(p => `
+                    <div class="saved-item" onclick="loadDetail('${p.listing_id}')">
+                        <div>
+                            <div style="font-weight:500;">${p.address || 'N/A'}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);">
+                                $${(p.list_price || 0).toLocaleString()} · Score ${(p.score_total || 0).toFixed(1)}
+                                ${p.lead_tier === 'HOT' ? '<span style="color:var(--accent);">🔥</span>' : ''}
+                            </div>
+                        </div>
+                        <div style="font-size:0.8rem;color:var(--accent);">
+                            ${p.lead_tier === 'HOT' ? '🔥 HOT' : p.lead_tier}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                el.innerHTML = '<p style="color:#ff4466;font-size:0.85rem;">Failed to load saved.</p>';
+            }
+        }
+
+        // ─── Helpers ────────────────────────────────────────────────
+        function goHome() {
+            // Reset to initial state — close panels, clear results
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('back-btn').style.display = 'none';
+            allProperties = [];
+            document.getElementById('results').innerHTML = `
+                <div class="results-empty">
+                    <div class="big-icon">⫸</div>
+                    <h3>Ready to find deals</h3>
+                    <p>Enter a city and price range above, then hit <strong>SCAN</strong>.</p>
+                </div>
+            `;
+            document.getElementById('stats-bar').style.display = 'none';
+            document.getElementById('filters').style.display = 'none';
+            document.getElementById('view-title').textContent = 'Enter a location and click SCAN to find deals';
+            document.getElementById('complete-banner').style.display = 'none';
+            document.getElementById('error-msg').style.display = 'none';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('error-msg');
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+
+        function resetScanButton() {
+            const btn = document.getElementById('scan-btn');
+            btn.disabled = false;
+            btn.textContent = 'SCAN';
+            document.getElementById('scan-status').style.display = 'none';
+            scanCompleted = false;
+        }
+
+        // ─── Listing URL ────────────────────────────────────────────
+        function getListingUrl(prop) {
+            // 1. Realtor.com detail URL (from HomeHarvest) — direct to listing
+            if (prop.property_url) return prop.property_url;
+            // 2. Zillow detail URL (from Playwright scraper)
+            if (prop.detail_url) return prop.detail_url;
+            // 3. Zillow address search — Zillow will redirect to the listing if it exists
+            const city = (prop.city || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
+            const state = (prop.state || '').toLowerCase();
+            const addr = (prop.address || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
+            if (city && state && addr) {
+                return `https://www.zillow.com/homes/${addr}_${city}_${state}_rb/`;
+            }
+            // 4. Google Maps with full address as last resort
+            const fullAddr = [prop.address, prop.city, prop.state, prop.zip].filter(Boolean).join(', ');
+            return `https://www.google.com/maps/search/${encodeURIComponent(fullAddr || prop.address || '')}`;
+        }
+
+        // ─── Init ───────────────────────────────────────────────────
+        // Load saved count on page load
+        fetch('/api/saved')
+            .then(r => r.json())
+            .then(data => {
+                const props = data.properties || [];
+                props.forEach(p => savedListingIds.add(p.listing_id));
+                document.getElementById('saved-count').textContent = savedListingIds.size;
+            })
+            .catch(() => {});
+
+        // Load stats
+        fetch('/api/stats')
+            .then(r => r.json())
+            .then(stats => {
+                if (stats.total_properties > 0) {
+                    document.getElementById('stat-total').textContent = stats.total_properties;
+                    document.getElementById('stat-hot').textContent = stats.hot_leads;
+                    document.getElementById('stat-warm').textContent = stats.warm_leads;
+                    document.getElementById('stat-avg').textContent = stats.avg_score;
+                    document.getElementById('stats-bar').style.display = 'grid';
+                    document.getElementById('view-title').textContent =
+                        `${stats.total_properties} properties in DB · ${stats.hot_leads} 🔥 HOT`;
+                }
+            })
+            .catch(() => {});
+    </script>
+</body>
+</html>
