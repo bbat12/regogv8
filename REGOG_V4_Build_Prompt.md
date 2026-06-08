@@ -63,7 +63,7 @@
 | Web Framework | Flask | Single-page app with SSE streaming |
 | Terminal UI | `rich` (PyPI) | Dark theme with red/crimson accents |
 | HTML Reports | `jinja2` | Dark-themed report generation |
-| Geocoding | `httpx` + Nominatim (OSM) | Free, 1 req/sec rate limit |
+| Geocoding | `httpx` + Nominatim (OSM) | Free, 1 req/sec rate limit — **note: currently unused by the pipeline** |
 | Scheduler | `apscheduler` (optional) | Background recurring scans |
 | HTML Parsing | `beautifulsoup4` | County portal scraping |
 
@@ -78,12 +78,25 @@ flask
 flask-cors
 httpx
 beautifulsoup4
-geopy
+geopy          # NOTE: listed in requirements but UNUSED in the actual codebase
 apscheduler
 jinja2
 ```
 
 After install: `playwright install chromium`
+
+### `.gitignore`
+
+Create a `.gitignore` at project root with at minimum:
+```
+regog.db
+regog_config.json
+__pycache__/
+*.pyc
+regog_report.html
+/tmp/
+```
+The SQLite database (`regog.db`) and generated reports should never be committed.
 
 ---
 
@@ -157,7 +170,7 @@ User Input (location, type, price range)
 1. **Sold comps are fetched ONCE per scan** (up to 200), then reused for all listings
 2. **`style` and `property_url` must be popped before DB upsert** (not in SQLite schema) and restored after for SSE streaming
 3. **The comp engine filters by style FIRST** before radius, before sqft — this is critical for accuracy
-4. **Properties are streamed via SSE in score order** (highest first)
+4. **Properties are streamed in processing order** (raw listing order) — the **frontend** inserts cards in score-sorted order using DOM insertion comparison in `addProperty()`, so the displayed list is always highest-score-first.
 
 ---
 
@@ -192,7 +205,7 @@ regog/
 │   │   ├── brain.py                 # Keyword-based property classifier
 │   │   ├── comp_engine.py           # Style-filtered comp calculation
 │   │   ├── enricher.py              # Orchestrates: assessor + FEMA + permits
-│   │   └── geocoder.py              # Nominatim geocoding (free)
+│   │   └── geocoder.py              # Nominatim geocoding (free) — ⚠️ DEAD CODE, never called by pipeline
 │   │
 │   ├── scoring/
 │   │   ├── __init__.py
@@ -208,8 +221,7 @@ regog/
 │   │   ├── __init__.py
 │   │   ├── terminal.py              # Rich terminal dashboard
 │   │   ├── report_generator.py      # Jinja2 HTML report generator
-│   │   └── templates/
-│   │       └── report.html.j2       # Dark-themed HTML template
+│   │   └── templates/ │   │       └── report.html.j2       # Dark-themed HTML template (Jinja2) — generates static HTML reports with stats bars, property cards, flags, and score bars matching the web UI aesthetic
 │   │
 │   └── utils/
 │       ├── __init__.py
@@ -356,6 +368,10 @@ These fields are used in-memory and during SSE streaming but are **NOT columns i
 
 **Both `main.py` and `web/app.py` must pop these before calling `upsert_property()`, then restore them afterward for streaming.**
 
+### `score_acreage_value` — Land-Only Field
+
+The database has a `score_acreage_value REAL` column, but it is **only populated by land scoring** (`land_score.py` → `acreage_premium`). Residential and commercial scoring never set this field — it will remain `NULL` for those property types.
+
 ---
 
 ## 6. Configuration System
@@ -458,6 +474,8 @@ DOM_SCORE_BRACKETS = [(30, 15), (90, 10), (180, 5), (float("inf"), 2)]
 - Handles `ImportError` gracefully (returns `[]` if homeharvest not installed)
 
 ### `normalize_listing(raw, source, scan_session_id, scan_type)`
+
+**⚠️ IMPORTANT: `homeharvest_scraper.py` also contains a STALE `fetch_sold_comps(lat, lon, radius_miles, scan_type)` function that always returns `[]`. Do NOT use it — the real sold comps function is in `redfin_scraper.py`.**
 
 This is the **most critical normalization function** in the app. It maps HomeHarvest column names (which vary) to REGOG's schema.
 
@@ -678,7 +696,7 @@ Six signals, max ~103 points (can exceed 100):
 | `assessor_gap` | 20 | 0.20 | `max(0, min(20, (gap_pct/30)*20))` — 30% gap = 20pts |
 | `condition` | 15 | 0.15 | standard=15, luxury=12, vacant=10, distressed=7, teardown=4, fire_damage=3 |
 | `flood_penalty` | 10 | 0.10 | X=10 (no penalty), AE=3, A=4, VE=0, None=8 |
-| `permit_risk` | +3 to -5 | — | low=+3, unknown=0, medium=-2, high=-5 |
+| `permit_risk` | +3 to -5 | **Flat modifier** (not weighted) | low=+3, unknown=0, medium=-2, high=-5. Added directly to total AFTER weighted sum. |
 
 **Tier assignment:** ≥70=HOT, ≥50=WARM, ≥35=NEUTRAL, ≥20=RISKY, <20=SKIP
 **Override:** fire_damage/teardown → `DISTRESSED_HOT`, `DISTRESSED_WARM`, etc.
@@ -728,6 +746,10 @@ regog config --set comp_radius_miles=5
 | `--tier` | HOT/WARM/NEUTRAL/RISKY/SKIP filter |
 | `--skip-flood` | Skip FEMA flood zone lookup |
 | `--use-zillow` | Also scrape Zillow |
+| `--zillow-pages` | Zillow pages to scrape (default 2, ~40 listings/page) |
+| `--past-days` | Look back period for listings (default 90) |
+| `--limit` | Max raw listings to fetch from HomeHarvest (default 50) — controls scraper output, not displayed count |
+| `--fresh` | Only show listings added/updated in last N days |
 
 ### Pipeline (same for all paths)
 
@@ -891,6 +913,7 @@ function getListingUrl(prop) {
 - `playwright-stealth` plugin to hide automation fingerprints
 - Human-like scrolling behavior
 - Random delays between actions
+- **Unique import pattern:** `from utils.rate_limiter import rate_limit as _shared_rate_limit, report_success as _report_success, report_error as _report_error` — this aliasing pattern is unique to `zillow_stealth.py` and not used in any other scraper
 
 ---
 
@@ -1094,10 +1117,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 - All subdirectories (`scrapers/`, `db/`, `enrichment/`, `scoring/`, `ui/`, `utils/`, `scheduler/`, `tests/`) need an **empty** `__init__.py` file to be importable as Python packages.
 - `regog/__init__.py` → empty (marks the package root)
-- `web/__init__.py` → must contain:
-  ```python
-  from web.app import app
-  ```
+- `web/__init__.py` → just needs to exist so `web/` is a Python package; actual content is just a comment `# REGOG Web App`. The `serve_report.py` entry point imports directly from `web.app`, not through the package init.
 
 ### Deferred Imports Pattern (CRITICAL)
 
@@ -1175,11 +1195,11 @@ price_deviation_pct = ((list_price - comp_median_price) / comp_median_price) * 1
 
 | Score | Tier | Color | Meaning |
 |-------|------|-------|---------|
-| ≥ 70 | HOT | Red glow | Screaming deal — act fast |
+| ≥ 70 | HOT | Green score / Red badge | Screaming deal — act fast |
 | ≥ 50 | WARM | Amber | Good opportunity |
 | ≥ 35 | NEUTRAL | White | Consider with investigation |
-| ≥ 20 | RISKY | Magenta | High risk, possibly distressed |
-| < 20 | SKIP | Gray | Avoid |
+| ≥ 20 | RISKY | Magenta (terminal only) | High risk, possibly distressed — **RISKY has no dedicated badge styling in the web UI** (renders as default badge) |
+| < 20 | SKIP | Gray (terminal only) | Avoid — **SKIP has no dedicated badge styling in the web UI** (renders as default badge) |
 
 ---
 
