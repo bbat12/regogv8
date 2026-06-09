@@ -63,15 +63,11 @@ Run tests after all fixes: `cd /workspaces/REgog && python -m pytest tests/ -v`
 - Land scoring: run scan for Billings, MT — scores should vary
 - Commercial: run scan for Chicago, IL — should show cap rate estimates
 
-## Current Status — ALL 7 PARTS COMPLETE
+## Current Status — ALL FIXES COMPLETE
 
-All seven parts have been implemented, tested, and verified:
-- **91/91 tests pass**
-- **3-category Billings scan** verified fixes work (see `REGOG_Billings_Scan_Report.md`)
-- **Last commit:** `5ddaf9c` — "regog: parts 1-7 scoring fixes complete. 91/91 tests pass"
-- **Latest commit (this one):** has the Billings scan report
+Both sessions of fixes are done. See git log for details.
 
-### What's Done
+### Session 1 (Scoring Fixes) — Commits `5ddaf9c`, `f1f23ee`
 - Part 1 — FEMA: rewritten with correct NFHL API, unknown zone = 0 penalty
 - Part 2 — PDev: percentile band scoring replaces binary below/above
 - Part 3 — DISTRESSED_ tier: removed prefix concatenation + DB migration
@@ -80,32 +76,37 @@ All seven parts have been implemented, tested, and verified:
 - Part 6 — Commercial: GRM-based cap rate estimation
 - Part 7 — Data completeness: `get_score_completeness()` function added
 
-### What's NOT Done (needs next session)
-1. **Wire Part 7 to the web UI** — `get_score_completeness()` exists in `regog/scoring/utils.py` but is never called. The build doc wants "Score based on X of 5 factors" badges on property cards.
-2. **Wire cap rates to the web UI** — `cap_rate_data` is computed and stored on the property dict by commercial scoring, but `web/static/index.html` and `web/app.py` don't display it.
-3. **Update `web/app.py` background scanner** — still uses `limit=200` for sold comps instead of dynamic pool sizing.
-4. **Update `report.html.j2`** — Jinja2 template doesn't show completeness or cap rates.
-5. **Full dynamic comp pool scaling** — only base size increased (200→300). The `get_comp_pool_size()` function and regional clustering are not implemented.
+### Session 2 (UI/Acreage Fixes) — Commits `aecdc02`+
+- Part 1 — Land acreage enrichment: created `acreage_enricher.py` with 4 fallback sources (lot_sqft, description parsing, title parsing, price heuristic). Wired into enricher.py. Estimated acreage gets 30% PDev penalty.
+- Part 2 — Cap rate in web UI: `buildCapRateSection()` JS function shows est. cap rate, NOI/yr, GRM in 3-column grid. CLI display for HOT/WARM commercial properties.
+- Part 3 — Score completeness badge: `renderCompletenessBadge()` + `getScoreCompleteness()` JS functions. Badge shows COMPLETE/PARTIAL/LIMITED DATA with color-coding and missing-factors tooltip.
+- Part 4 — Acreage warning: land cards show "Acreage estimated (~Xac)" vs "Acreage unknown" warning based on source.
 
-### Key Files
-- `REGOG_Board_Meeting_Q2_2026.md` — board findings that drove the fixes
-- `REGOG_V5_FIXES.md` — this file, build instructions
-- `REGOG_Billings_Scan_Report.md` — verification results
-- `regog/scrapers/fema_scraper.py` — rewritten FEMA scraper
-- `regog/config.py` — FLOOD_SCORES, SOLD_COMPS_* added
-- `regog/scoring/utils.py` — `score_price_deviation()`, `get_score_completeness()`
-- `regog/scoring/residential_score.py` — percentile band PDev
-- `regog/scoring/commercial_score.py` — GRM cap rate estimation
-- `regog/scoring/land_score.py` — per-acre bands, assessor gap, no defaults
-- `regog/db/database.py` — `_fix_corrupted_tiers()` migration
+### What's NOT Done
+1. **`web/app.py` background scanner** — still uses `limit=200` for sold comps instead of dynamic pool sizing from config.
+2. **`report.html.j2`** — Jinja2 template doesn't show completeness badges or cap rates.
+3. **Full dynamic comp pool scaling** — only base size increased (200→300). The `get_comp_pool_size()` function and regional clustering not implemented.
+4. **Minor**: card-level acreage display lacks "estimated" qualifier (only shows in expanded detail).
+
+### Key Files (this session)
+- `regog/enrichment/acreage_enricher.py` — NEW: acreage fallback enrichment
+- `regog/enrichment/enricher.py` — wired acreage enrichment
+- `regog/main.py` — completeness + cap rate + CLI details + _print_property_details
+- `regog/scoring/land_score.py` — estimated acreage penalty, SKIP→NEUTRAL
+- `web/app.py` — completeness in SSE stream, cap rate save/restore
+- `web/static/index.html` — completeness badge, cap rate section, acreage warning, JS functions
+- `regog/ui/terminal.py` — added COMPS column
 
 ### Quick Start for Next Agent
 ```bash
 cd /workspaces/REgog
-python -m pytest tests/ -v          # Run tests (should be 91/91)
-python regog/main.py scan residential --location "Phoenix, AZ" --limit 20 --skip-flood
+git log --oneline -10                  # See recent commits
+python -m pytest tests/ -v             # Run tests (91/91 pass)
+python regog/main.py scan land --location "Billings, MT" --limit 20 --skip-flood  # Test land acreage
+python regog/main.py scan residential --location "Dallas, TX" --limit 10 --skip-flood  # Test completeness
+python3 serve_report.py                # Start web UI to test cap rate + completeness badges
 
-# To fix remaining items, start with:
-# 1. web/static/index.html — add completeness badges
-# 2. web/static/index.html — add cap rate display for commercial
-# 3. web/app.py — update _run_scan_background to use dynamic comp pool
+# Remaining items (if continuing):
+# 1. web/app.py — update _run_scan_background comp pool
+# 2. regog/ui/templates/report.html.j2 — add completeness + cap rate
+# 3. web/static/index.html — add "~" prefix to estimated acreage on card level (minor)
