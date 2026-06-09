@@ -144,6 +144,7 @@ def score_land(property_dict: dict) -> dict:
         dev = property_dict.get("price_deviation_pct")
         if dev is not None and float(dev) < 0:
             fallback_price_score = max(0.0, min(40.0, (-float(dev) / 50.0) * 40.0))
+            scores["price_deviation"] = fallback_price_score
             total = fallback_price_score + zoning_score + road_score + utilities_score + acreage_premium + flood_score
             data_confidence = "MEDIUM"
         else:

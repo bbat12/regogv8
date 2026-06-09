@@ -121,6 +121,12 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
             if parsed and parsed > 0:
                 acres_val = round(parsed / 43560, 4)
 
+    # For land parcels: derive sqft from acres if no direct sqft available
+    if not sqft_val and acres_val:
+        acres_num = flt(acres_val)
+        if acres_num and acres_num > 0:
+            sqft_val = round(acres_num * 43560)
+
     # Property style/type (e.g. SINGLE_FAMILY, CONDOS, TOWNHOMES, MULTI_FAMILY, LAND)
     # Capturing this is critical for accurate comp matching
     property_style = g("style", "property_type", "home_type")

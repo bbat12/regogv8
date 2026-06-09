@@ -481,10 +481,20 @@ def _run_scan_background(
                     score_result = score_commercial(prop)
 
                 prop["score_total"] = score_result["total"]
-                prop["score_price_deviation"] = score_result["scores"].get("price_deviation", 0)
-                prop["score_dom_signal"] = score_result["scores"].get("dom_signal", 0)
-                prop["score_assessor_gap"] = score_result["scores"].get("assessor_gap", 0)
-                prop["score_condition"] = score_result["scores"].get("condition", 0)
+                # Map score components — different scan types use different keys
+                if scan_type == "land":
+                    prop["score_price_deviation"] = score_result["scores"].get("price_deviation",
+                        score_result["scores"].get("price_per_acre_deviation", 0))
+                    prop["score_dom_signal"] = score_result["scores"].get("dom_signal", 0)
+                    prop["score_assessor_gap"] = score_result["scores"].get("assessor_gap",
+                        score_result["scores"].get("zoning_bonus", 0))
+                    prop["score_condition"] = score_result["scores"].get("condition",
+                        score_result["scores"].get("acreage_premium", 0))
+                else:
+                    prop["score_price_deviation"] = score_result["scores"].get("price_deviation", 0)
+                    prop["score_dom_signal"] = score_result["scores"].get("dom_signal", 0)
+                    prop["score_assessor_gap"] = score_result["scores"].get("assessor_gap", 0)
+                    prop["score_condition"] = score_result["scores"].get("condition", 0)
                 prop["score_flood_penalty"] = score_result["scores"].get("flood_penalty", 0)
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")

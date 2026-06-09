@@ -106,6 +106,12 @@ def normalize_sold_listing(raw: dict, scan_type: str = "residential") -> dict | 
         if lot_sqft_val and lot_sqft_val > 0:
             acres_val = round(lot_sqft_val / 43560, 4)
 
+    # For land parcels: derive sqft from acres if no direct sqft available
+    if not sqft_val and acres_val:
+        acres_num = flt(acres_val)
+        if acres_num and acres_num > 0:
+            sqft_val = round(acres_num * 43560)
+
     lot_sqft = num(g("lot_sqft", "lot_size_sqft", "lot_area", "land_sqft", "parcel_sqft", "lot_size", "lot_area_sqft", "land_area_sqft", "lot_square_feet"))
 
     # Beds / baths
