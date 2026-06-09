@@ -145,6 +145,12 @@ def normalize_sold_listing(raw: dict, scan_type: str = "residential") -> dict | 
     # Listing description (may not be available for sold)
     description = g("description", "listing_description", "text", "remarks", "public_remarks")
 
+    # Listing image (thumbnail)
+    primary_photo = g("primary_photo", "photo", "image_url", "thumbnail_url")
+
+    # Number of stories (for high-rise detection)
+    stories = num(g("stories", "num_stories", "floors", "total_stories"))
+
     # Property URL — HomeHarvest includes this for sold listings too
     property_url = g("property_url", "listing_url", "url", "href")
 
@@ -164,6 +170,8 @@ def normalize_sold_listing(raw: dict, scan_type: str = "residential") -> dict | 
         "price_per_acre": ppa,
         "sqft": num(sqft_val),
         "acres": flt(acres_val),
+        "stories": stories,
+        "primary_photo": primary_photo,
         "beds": beds,
         "baths": baths,
         "year_built": year_built,
@@ -212,10 +220,10 @@ def fetch_sold_comps(
 
     # Map scan_type to property types for sold search
     property_types = {
-        "residential": ["single_family", "multi_family", "condos", "townhomes", "duplex_triplex"],
-        "land": ["land"],
-        "commercial": ["multi_family"],
-    }.get(scan_type, ["single_family", "multi_family", "condos", "townhomes"])
+        "residential": ["single_family", "mobile"],  # Single family + mobile homes
+        "land": ["land"],                              # Vacant land only
+        "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],  # Everything else except mobile
+    }.get(scan_type, ["single_family"])
 
     logger.info(
         f"Fetching sold comps in '{location}' "

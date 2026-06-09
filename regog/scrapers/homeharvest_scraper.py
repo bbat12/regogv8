@@ -152,6 +152,12 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
     # Listing description
     description = g("description", "listing_description", "text", "remarks", "public_remarks")
 
+    # Listing image (thumbnail)
+    primary_photo = g("primary_photo", "photo", "image_url", "thumbnail_url")
+
+    # Number of stories (for high-rise detection)
+    stories = num(g("stories", "num_stories", "floors", "total_stories"))
+
     # Realtor.com detail URL + permalink
     property_url = g("property_url", "rdc_web_url", "href", "url")
     permalink = g("permalink", "mls_id")
@@ -180,6 +186,8 @@ def normalize_listing(raw: dict, source: str = "realtor", scan_session_id: str =
         "price_per_acre": ppa,
         "sqft": num(sqft_val),
         "acres": flt(acres_val),
+        "stories": stories,
+        "primary_photo": primary_photo,
         "beds": beds_int,
         "baths": baths_float,
         "year_built": year,

@@ -64,6 +64,13 @@ def _days_since_sold(comp: dict) -> Optional[int]:
     return max(0, delta.days)
 
 
+def _in_range(value: Optional[float], target: Optional[float], max_diff: float) -> bool:
+    """Check if a value is within max_diff of target (handles None gracefully)."""
+    if value is None or target is None or target == 0:
+        return True  # Can't filter — include it
+    return abs(value - target) <= max_diff
+
+
 def _median(values: list[float]) -> Optional[float]:
     """Compute median of a list."""
     if not values:
@@ -83,7 +90,7 @@ def get_comp_radii(prop: dict) -> list[float]:
     """
     zip_code = prop.get("zip") or prop.get("zip_code", "")
     density = get_market_density(zip_code)
-    category = get_property_category(prop.get("style"), prop.get("property_type"))
+    category = get_property_category(prop.get("style"), prop.get("property_type"), prop.get("stories"))
     radii = COMP_RADII.get(category, COMP_RADII_DEFAULT).get(density, COMP_RADII_DEFAULT["suburban"])
     return list(radii)
 
@@ -111,22 +118,28 @@ def _filter_by_distance(
 def _filter_by_style(properties: list[dict], target_style: str, scan_type: str) -> list[dict]:
     """Filter sold properties by property style (apples-to-apples)."""
     style_map = {
-        "SINGLE_FAMILY": ["SINGLE_FAMILY"],
+        "SINGLE_FAMILY": ["SINGLE_FAMILY", "MANUFACTURED", "MOBILE"],
+        "MANUFACTURED": ["MANUFACTURED", "SINGLE_FAMILY"],
+        "MOBILE": ["MOBILE", "SINGLE_FAMILY"],
         "CONDOS": ["CONDOS"],
         "TOWNHOMES": ["TOWNHOMES"],
-        "MULTI_FAMILY": ["MULTI_FAMILY"],
+        "MULTI_FAMILY": ["MULTI_FAMILY", "APARTMENT"],
         "APARTMENT": ["APARTMENT", "MULTI_FAMILY"],
+        "DUPLEX": ["DUPLEX", "MULTI_FAMILY"],
+        "TRIPLEX": ["TRIPLEX", "MULTI_FAMILY"],
+        "QUADPLEX": ["QUADPLEX", "MULTI_FAMILY"],
         "LAND": ["LAND"],
-        "MOBILE": ["MOBILE", "SINGLE_FAMILY"],
+        "FARM": ["FARM", "LAND"],
+        "MOBILE": ["MOBILE"],
     }
     matching_styles = style_map.get(target_style.upper(), [])
     if not matching_styles:
         if scan_type == "residential":
-            matching_styles = ["SINGLE_FAMILY", "CONDOS", "TOWNHOMES", "MULTI_FAMILY"]
+            matching_styles = ["SINGLE_FAMILY", "MOBILE"]
         elif scan_type == "land":
-            matching_styles = ["LAND"]
+            matching_styles = ["LAND", "FARM"]
         elif scan_type == "commercial":
-            matching_styles = ["MULTI_FAMILY", "APARTMENT"]
+            matching_styles = ["CONDOS", "TOWNHOMES", "MULTI_FAMILY", "APARTMENT", "DUPLEX", "TRIPLEX", "QUADPLEX"]
     return [c for c in properties if str(c.get("style", "")).upper() in matching_styles]
 
 
@@ -149,24 +162,22 @@ def _filter_by_lookback(properties: list[dict], max_days: int) -> list[dict]:
 
 def calculate_comp_confidence(
     comp_count: int,
-    radius_used: float,
+    tier_used: int,
     lookback_used: int,
-    radii: list[float],
 ) -> tuple[float, str]:
     """
     Calculate a numeric confidence score (0.0–1.0) and a label
     ('HIGH', 'MEDIUM', 'LOW') for a set of comp results.
 
     Applies penalties for:
-      - Low comp count (1 comp → -0.40, 2 comps → -0.20)
-      - Expanded radius (tier 2 → -0.10, tier 3 → -0.20)
-      - Extended time window (>360d → -0.15, >180d → -0.05)
+      - Low comp count (1 comp → -0.40, 2 comps → -0.35)
+      - Expanded radius (tier 2 → -0.10, tier 3 → -0.20, tier 4+ → -0.25)
+      - Extended time window (>365d → -0.15, >180d → -0.05)
 
     Args:
         comp_count: Number of comps found.
-        radius_used: The radius (miles) that was used.
+        tier_used: Which radius tier was used (1-4).
         lookback_used: The lookback window (days) that was used.
-        radii: The three-tier radii list for this property.
 
     Returns:
         Tuple of (confidence_float, confidence_label).
@@ -176,16 +187,18 @@ def calculate_comp_confidence(
 
     confidence = 1.0
 
-    # Penalty for low comp count
+    # Penalty for low comp count (rare now with MIN_COMPS_REQUIRED=5)
     if comp_count == 1:
         confidence -= 0.40
     elif comp_count == 2:
-        confidence -= 0.20
+        confidence -= 0.35
 
     # Penalty for expanded radius
-    if radius_used == radii[2] if len(radii) > 2 else False:
+    if tier_used >= 4:
+        confidence -= 0.25  # Emergency expansion
+    elif tier_used == 3:
         confidence -= 0.20
-    elif radius_used == radii[1] if len(radii) > 1 else False:
+    elif tier_used == 2:
         confidence -= 0.10
 
     # Penalty for extended time window
@@ -219,13 +232,15 @@ def find_comps_with_expansion(
     Two-dimensional expansion search: radius tiers FIRST, then time windows.
 
     Tries every combination of radius tier + lookback window until
-    MIN_COMPS_REQUIRED is met.
+    MIN_COMPS_REQUIRED (5) is met. Adds a 4th emergency radius tier
+    (double the widest tier) when needed.
 
     Expansion order (outer = time, inner = radius):
-        180d/r1 → 180d/r2 → 180d/r3 →
-        270d/r1 → 270d/r2 → 270d/r3 →
-        365d/r1 → 365d/r2 → 365d/r3 →
-        540d/r1 → 540d/r2 → 540d/r3
+        180d/r1 → 180d/r2 → 180d/r3 → 180d/r4 →
+        270d/r1 → 270d/r2 → 270d/r3 → 270d/r4 →
+        365d/r1 → 365d/r2 → 365d/r3 → 365d/r4 →
+        540d/r1 → 540d/r2 → 540d/r3 → 540d/r4 →
+        730d/r1 → 730d/r2 → 730d/r3 → 730d/r4
 
     Args:
         style_filtered: Sold properties pre-filtered by style match.
@@ -257,11 +272,22 @@ def find_comps_with_expansion(
         if len(comps) >= MIN_COMPS_REQUIRED:
             return comps, r3, 3, lookback, lookback > 365
 
-    # If we exhausted all combinations and still don't have enough,
-    # use the widest expansion (540 days, r3) — whatever we can get
-    time_filtered = _filter_by_lookback(style_filtered, 540)
-    comps = _filter_by_distance(time_filtered, target_lat, target_lon, r3)
-    return comps, r3, 3, 540, True
+        # Keep expanding until we hit MIN_COMPS_REQUIRED or 100mi cap
+        multiplier = 2.0
+        while multiplier <= 50.0:  # r3 * 50 caps at ~100mi for most categories
+            expanded_radius = r3 * multiplier
+            if expanded_radius > 100:
+                break
+            comps = _filter_by_distance(time_filtered, target_lat, target_lon, expanded_radius)
+            if len(comps) >= MIN_COMPS_REQUIRED:
+                tier = 3 + int(multiplier)
+                return comps, expanded_radius, tier, lookback, lookback > 365
+            multiplier += 2.0
+
+    # Fallback: max expansion — whatever we can find (max lookback, 100mi)
+    time_filtered = _filter_by_lookback(style_filtered, COMP_LOOKBACK_TIERS[-1])
+    comps = _filter_by_distance(time_filtered, target_lat, target_lon, 100)
+    return comps, 100, 99, COMP_LOOKBACK_TIERS[-1], True
 
 
 # ─── Main Entry Point ──────────────────────────────────────────────────────
@@ -296,7 +322,7 @@ def calculate_comps(
     # Get density, category, and radii
     zip_code = property_dict.get("zip") or property_dict.get("zip_code", "")
     density = get_market_density(zip_code)
-    category = get_property_category(property_dict.get("style"), property_dict.get("property_type"))
+    category = get_property_category(property_dict.get("style"), property_dict.get("property_type"), property_dict.get("stories"))
     radii = get_comp_radii(property_dict)
 
     # ── Missing lat/lon → skip comps entirely ─────────────────────────────
@@ -331,8 +357,9 @@ def calculate_comps(
     comps, radius_used, tier_used, lookback_used, staleness = \
         find_comps_with_expansion(style_filtered, target_lat, target_lon, radii)
 
-    # ── Step 3: Filter by size similarity ────────────────────────────────
+    # ── Step 3: Filter by physical similarity ────────────────────────────
     if len(comps) >= MIN_COMPS_REQUIRED:
+        # Filter by sqft (residential/commercial)
         if target_sqft and stype in ("residential", "commercial"):
             sqft_pct = COMP_DEFAULTS["similar_sqft_pct"]
             min_sqft = target_sqft * (1 - sqft_pct)
@@ -344,7 +371,22 @@ def calculate_comps(
             if len(sqft_matched) >= MIN_COMPS_REQUIRED:
                 comps = sqft_matched
 
-        elif stype == "land" and target_acres:
+        # Filter by bedrooms/bathrooms (residential only)
+        if stype == "residential":
+            beds_range = COMP_DEFAULTS["similar_beds_range"]
+            baths_range = COMP_DEFAULTS["similar_baths_range"]
+            target_beds = property_dict.get("beds") or 0
+            target_baths = property_dict.get("baths") or 0
+            bed_bath_matched = [
+                c for c in comps
+                if _in_range(c.get("beds"), target_beds, beds_range)
+                and _in_range(c.get("baths"), target_baths, baths_range)
+            ]
+            if len(bed_bath_matched) >= MIN_COMPS_REQUIRED:
+                comps = bed_bath_matched
+
+        # Filter by acres (land)
+        if stype == "land" and target_acres:
             acres_pct = COMP_DEFAULTS["similar_acres_pct"]
             min_acres = target_acres * (1 - acres_pct)
             max_acres = target_acres * (1 + acres_pct)
@@ -376,9 +418,25 @@ def calculate_comps(
             ((target_price - comp_median_price) / comp_median_price) * 100, 2
         )
 
+    # Variance metrics: range and stddev
+    comp_price_range = None
+    comp_price_stddev = None
+    comp_variance_high = False  # True when range/median > 50%
+    if len(prices) >= 2:
+        comp_price_range = max(prices) - min(prices)
+        try:
+            comp_price_stddev = round(statistics.stdev(prices), 2)
+        except statistics.StatisticsError:
+            pass
+        # Flag high variance: range > 50% of median
+        if comp_median_price and comp_median_price > 0 and comp_price_range:
+            range_pct = comp_price_range / comp_median_price
+            if range_pct > 0.50:
+                comp_variance_high = True
+
     # ── Step 5: Calculate confidence ──────────────────────────────────────
     conf_float, conf_label = calculate_comp_confidence(
-        comp_count, radius_used, lookback_used, radii
+        comp_count, tier_used, lookback_used
     )
 
     # ── Log ───────────────────────────────────────────────────────────────
@@ -409,17 +467,32 @@ def calculate_comps(
         if c_lat and c_lon and target_lat and target_lon:
             distance = round(haversine_miles(target_lat, target_lon, c_lat, c_lon), 2)
 
+        sold_date = c.get("last_sold_date") or c.get("sold_date") or c.get("close_date", "")
+        # Shorten date format: "2024-03-15" → "Mar 2024"
+        sold_date_short = ""
+        if sold_date:
+            try:
+                dt = _parse_date(sold_date)
+                if dt:
+                    sold_date_short = dt.strftime("%b %Y")
+            except Exception:
+                sold_date_short = str(sold_date)[:7] if sold_date else ""
+
         top_comps.append({
             "address": c.get("address", ""),
             "list_price": comp_price,
             "sqft": c.get("sqft"),
+            "acres": c.get("acres"),
             "beds": c.get("beds"),
             "baths": c.get("baths"),
             "style": c.get("style", ""),
             "days_on_market": c.get("days_on_market"),
             "property_url": c.get("property_url", ""),
+            "primary_photo": c.get("primary_photo"),
             "listing_status": c.get("listing_status", "sold"),
             "distance_miles": distance,
+            "last_sold_date": sold_date,
+            "last_sold_date_short": sold_date_short,
         })
 
     return {
@@ -437,5 +510,8 @@ def calculate_comps(
         "comp_confidence": conf_float,
         "comp_confidence_label": conf_label,
         "comp_staleness_penalty_applied": staleness,
+        "comp_price_range": comp_price_range,
+        "comp_price_stddev": comp_price_stddev,
+        "comp_variance_high": comp_variance_high,
         "comp_listings": top_comps,
     }

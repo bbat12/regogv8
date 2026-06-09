@@ -19,8 +19,8 @@
             --accent-glow: rgba(255, 34, 51, 0.4);
             --accent-dim: rgba(255, 34, 51, 0.15);
             --text: #e8e8f0;
-            --text-muted: #888899;
-            --text-dim: rgba(255, 255, 255, 0.35);
+            --text-muted: #c0c0d0;
+            --text-dim: rgba(255, 255, 255, 0.55);
             --border: rgba(255, 255, 255, 0.06);
             --green: #44ff66;
             --amber: #ffaa00;
@@ -43,11 +43,13 @@
             letter-spacing: 0.02em;
         }
 
-        /* ─── Scrollbar ────────────────────────────────────────────── */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: var(--bg); }
-        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        /* ─── Scrollbar (Chrome/Safari/Edge) ──────────────────────── */
+        ::-webkit-scrollbar { width: 16px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.5); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.75); background-clip: padding-box; }
+        /* ─── Scrollbar (Firefox) ───────────────────────────────── */
+        * { scrollbar-width: auto; scrollbar-color: rgba(255, 255, 255, 0.5) rgba(0, 0, 0, 0.3); }
 
         /* ─── Layout ───────────────────────────────────────────────── */
         .app {
@@ -523,17 +525,32 @@
             transition: width 0.5s ease;
         }
 
-        /* ─── Expanded Detail ─────────────────────────────────────── */
+        /* ─── Expanded Detail — White Box ────────────────────────── */
         .prop-detail {
             margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border);
+            padding: 1.25rem;
             display: none;
+            background: #3d3d58;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: var(--radius-sm);
+            box-shadow: 0 0 0 3px rgba(255, 34, 51, 0.25), 0 4px 24px rgba(0, 0, 0, 0.5);
         }
 
         .prop-card.expanded .prop-detail {
             display: block;
             animation: slideIn 0.25s ease-out;
+        }
+
+        .prop-card.expanded {
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 0 2px rgba(255, 34, 51, 0.25), 0 8px 32px rgba(0, 0, 0, 0.6);
+            background: #14141e;
+        }
+
+        .prop-card.expanded .prop-card-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 0.75rem;
+            margin-bottom: 0.25rem;
         }
 
         .detail-grid {
@@ -836,25 +853,29 @@
         }
 
         .comp-scroll::-webkit-scrollbar {
-            height: 4px;
+            height: 6px;
         }
 
         .comp-scroll::-webkit-scrollbar-track {
-            background: var(--bg);
-            border-radius: 2px;
+            background: transparent;
+            border-radius: 3px;
         }
 
         .comp-scroll::-webkit-scrollbar-thumb {
-            background: var(--border);
-            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        .comp-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
         }
 
         .comp-card {
-            flex: 0 0 200px;
+            flex: 0 0 280px;
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
-            padding: 0.5rem 0.65rem;
+            padding: 0.6rem 0.75rem;
             cursor: pointer;
             transition: all 0.2s;
             scroll-snap-align: start;
@@ -869,6 +890,25 @@
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
         }
 
+        .comp-card .comp-inner {
+            display: flex;
+            gap: 0.6rem;
+        }
+
+        .comp-card .comp-thumb {
+            width: 56px;
+            height: 56px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+            border: 1px solid var(--border);
+        }
+
+        .comp-card .comp-body {
+            flex: 1;
+            min-width: 0;
+        }
+
         .comp-card .comp-addr {
             font-size: 0.7rem;
             color: var(--text);
@@ -880,18 +920,29 @@
 
         .comp-card .comp-price {
             font-family: 'Orbitron', monospace;
-            font-size: 0.8rem;
+            font-size: 0.85rem;
             color: var(--green);
             font-weight: 700;
-            margin-top: 0.15rem;
+            margin-top: 0.1rem;
         }
 
         .comp-card .comp-meta {
             font-size: 0.65rem;
             color: var(--text-dim);
-            margin-top: 0.2rem;
+            margin-top: 0.15rem;
             display: flex;
-            gap: 0.4rem;
+            flex-wrap: wrap;
+            gap: 0.3rem 0.5rem;
+        }
+
+        .comp-card .comp-meta-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.15rem;
+        }
+
+        .comp-card .comp-meta-item .m-label {
+            opacity: 0.5;
         }
 
         .comp-card .comp-open-icon {
@@ -916,7 +967,7 @@
             padding: 0.05rem 0.35rem;
             border-radius: 3px;
             display: inline-block;
-            margin-top: 0.2rem;
+            margin-top: 0.15rem;
         }
 
         .comp-listings-empty {
@@ -962,7 +1013,7 @@
             <div class="scan-field">
                 <label>Type</label>
                 <select id="scan-type">
-                    <option value="residential">🏠 Residential</option>
+                    <option value="residential">🏠 Single Family Homes</option>
                     <option value="land">🌲 Land</option>
                     <option value="commercial">🏢 Commercial</option>
                 </select>
@@ -978,6 +1029,7 @@
             <div class="scan-field">
                 <label>&nbsp;</label>
                 <button class="scan-btn" id="scan-btn" onclick="startScan()">SCAN</button>
+                <button class="scan-btn" id="stop-btn" onclick="stopScan()" style="display:none;background:linear-gradient(135deg,#666 0%,#444 100%);box-shadow:none;">✕ STOP</button>
             </div>
             <div class="scan-status" id="scan-status" style="display:none;">
                 <div class="spinner"></div>
@@ -1044,6 +1096,12 @@
                 <button class="filter-btn active" onclick="filterTier('all')" id="f-all">All</button>
                 <button class="filter-btn" onclick="filterTier('HOT')" id="f-HOT">🔥 HOT</button>
                 <button class="filter-btn" onclick="filterTier('WARM')" id="f-WARM">🌡 WARM</button>
+                <span style="color:var(--text-dim);margin:0 0.25rem;">|</span>
+                <button class="filter-btn active" onclick="setSort('price-asc')" id="s-price-asc">$ ↑</button>
+                <button class="filter-btn" onclick="setSort('price-desc')" id="s-price-desc">$ ↓</button>
+                <button class="filter-btn" onclick="setSort('profit-asc')" id="s-profit-asc">% ↓</button>
+                <button class="filter-btn" onclick="setSort('profit-desc')" id="s-profit-desc">% ↑</button>
+                <button class="filter-btn" onclick="setSort('score-desc')" id="s-score-desc">Score ↓</button>
             </div>
         </div>
 
@@ -1064,6 +1122,7 @@
         let allProperties = [];
         let savedListingIds = new Set();
         let currentFilter = 'all';
+        let sortMode = 'price-asc';  // 'price-asc', 'price-desc', 'profit-asc', 'profit-desc', 'score-desc'
         let scanActive = false;
         let scanCompleted = false;  // guard against double-fire
 
@@ -1093,12 +1152,16 @@
             currentFilter = 'all';
             scanActive = true;
 
-            document.getElementById('scan-btn').disabled = true;
-            document.getElementById('scan-btn').textContent = '...';
+            document.getElementById('scan-btn').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'inline-flex';
             document.getElementById('scan-status').style.display = 'flex';
             document.getElementById('status-text').textContent = 'Starting scan...';
             document.getElementById('error-msg').style.display = 'none';
-            document.getElementById('complete-banner').style.display = 'none';
+            const cb = document.getElementById('complete-banner');
+            cb.style.display = 'none';
+            cb.style.background = '';
+            cb.style.borderColor = '';
+            cb.style.color = '';
             document.getElementById('results').innerHTML = '';
             document.getElementById('stats-bar').style.display = 'grid';
             document.getElementById('filters').style.display = 'flex';
@@ -1184,6 +1247,46 @@
                 .catch(() => setTimeout(pollStatus, 3000));
         }
 
+        // ─── Stop Scan ─────────────────────────────────────────────
+        async function stopScan() {
+            if (!currentSessionId) return;
+
+            // Send cancel request to backend
+            try {
+                await fetch(`/api/scan/${currentSessionId}/cancel`, { method: 'POST' });
+            } catch (err) {
+                console.error('Cancel request failed:', err);
+            }
+
+            // Close SSE
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+
+            scanActive = false;
+            scanCompleted = true;
+
+            // Update UI
+            document.getElementById('scan-status').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'none';
+            document.getElementById('scan-btn').style.display = 'inline-flex';
+            resetScanButton();
+            document.getElementById('live-stat').style.display = 'none';
+            document.getElementById('view-title').textContent =
+                `Scan cancelled — ${allProperties.length} properties processed`;
+
+            // Show cancelled banner
+            const banner = document.getElementById('complete-banner');
+            banner.style.display = 'block';
+            banner.style.background = 'rgba(255,170,0,0.08)';
+            banner.style.borderColor = 'rgba(255,170,0,0.2)';
+            banner.style.color = 'var(--amber)';
+            banner.innerHTML = `✕ Scan cancelled · <strong>${allProperties.length}</strong> properties processed, <strong style="color:var(--accent);">${allProperties.filter(p => p.lead_tier === 'HOT').length}</strong> 🔥 HOT`;
+
+            updateStats();
+        }
+
         function onScanComplete(status) {
             if (!scanActive || scanCompleted) return;
             scanActive = false;
@@ -1192,6 +1295,8 @@
             if (eventSource) { eventSource.close(); eventSource = null; }
 
             document.getElementById('scan-status').style.display = 'none';
+            document.getElementById('stop-btn').style.display = 'none';
+            document.getElementById('scan-btn').style.display = 'inline-flex';
             resetScanButton();
             document.getElementById('live-stat').style.display = 'none';
 
@@ -1239,6 +1344,12 @@
             const styleBadge = prop.style ? `<span class="badge" style="font-size:0.65rem;border-color:rgba(255,255,255,0.1);color:var(--text-muted);">${prop.style}</span>` : '';
 
             // LOW COMPS badge (when confidence is LOW from expanded search)
+            // Variance badge
+            let varianceBadge = '';
+            if (prop.comp_variance_high && prop.comp_count > 0 && prop.comp_count < 5) {
+                varianceBadge = `<span class="badge" style="color:#ff4466;border-color:rgba(255,68,102,0.3);font-size:0.6rem;" title="Comp range > 50% of median — prices are highly scattered">⚠ WIDE SPREAD</span>`;
+            }
+            // Comp confidence badge
             const lowCompsBadge = confLabel === 'LOW' && confNum !== null
                 ? `<span class="badge" style="color:#ff4466;border-color:rgba(255,68,102,0.3);font-size:0.6rem;" title="Comp confidence: ${confNum}% — ${(prop.comp_lookback_used || 180)}d lookback">⚠ LOW COMPS</span>`
                 : confLabel === 'MEDIUM'
@@ -1258,6 +1369,10 @@
             if (classification && classification !== 'standard' && classification !== 'land_only') {
                 flagsHtml += `<span class="flag flag-brain">🧠 ${classification}</span>`;
             }
+            // Filter flag (burned, demolition, land masquerade)
+            if (prop.filter_reason) {
+                flagsHtml += `<span class="flag flag-red">⚠ ${prop.filter_reason}</span>`;
+            }
             redFlags.slice(0, 2).forEach(f => {
                 flagsHtml += `<span class="flag flag-red">⚠ ${f}</span>`;
             });
@@ -1270,14 +1385,20 @@
             card.id = `prop-${prop.listing_id}`;
             card.dataset.tier = tier;
             card.dataset.score = score;
+            card.dataset.price = prop.list_price || 0;
+            card.dataset.profit = prop.price_deviation_pct != null ? prop.price_deviation_pct : '';
 
             card.innerHTML = `                    <div class="prop-card-header" onclick="toggleExpand('${prop.listing_id}')">
-                    <div class="prop-address">
-                        ${prop.address || 'N/A'}
-                        <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem;">
-                            ${styleBadge}
-                            ${lowCompsBadge}
-                            ${acresDisplay ? `<span style="color:${prop.acres ? 'var(--text-muted)' : '#ff4466'}">${acresDisplay}</span>` : ''}
+                    <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0;">
+                        ${prop.primary_photo ? `<img src="${prop.primary_photo}" alt="" style="width:48px;height:48px;border-radius:6px;object-fit:cover;flex-shrink:0;border:1px solid var(--border);" onerror="this.style.display='none'">` : ''}
+                        <div class="prop-address">
+                            ${prop.address || 'N/A'}
+                            <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem;">
+                                ${styleBadge}
+                                ${lowCompsBadge}
+                                ${varianceBadge}
+                                ${acresDisplay ? `<span style="color:${prop.acres ? 'var(--text-muted)' : '#ff4466'}">${acresDisplay}</span>` : ''}
+                            </div>
                         </div>
                     </div>
                     <div class="prop-meta">
@@ -1307,6 +1428,10 @@
                     <span class="item">
                         <span class="label">Beds/Baths</span>
                         <span class="value white">${prop.beds || '?'}/${prop.baths || '?'}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">Stories</span>
+                        <span class="value white">${prop.stories || '?'}</span>
                     </span>
                     <span class="item">
                         <span class="label">Sqft</span>
@@ -1351,6 +1476,10 @@
                             <span class="value white">${prop.year_built || 'N/A'}</span>
                         </div>
                         <div class="detail-item">
+                            <span class="label">Stories</span>
+                            <span class="value white">${prop.stories || 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
                             <span class="label">Days Listed</span>
                             <span class="value white">${prop.days_on_market ? prop.days_on_market + ' days' : '?'}</span>
                         </div>
@@ -1372,11 +1501,7 @@
                         </div>
                     </div>
 
-                    ${prop.comp_confidence === 'LOW' && prop.comp_count < 5 ? `
-                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
-                        ⚠ Only ${prop.comp_count} comps found — score may be unreliable
-                    </div>
-                    ` : ''}
+                    ${buildCompWarning(prop)}
 
                     ${prop.scan_type === 'land' && !prop.acres ? `
                     <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
@@ -1420,7 +1545,7 @@
                     <div style="margin-top:0.5rem;font-size:0.75rem;">
                         ${prop.comp_count > 0 ? `
                             <span style="color:${confColor};" title="Confidence: ${confNum || '?'}% · ${prop.comp_density || 'suburban'} ${prop.comp_category || 'residential'}">
-                                ${confLabel === 'LOW' ? '⚠ ' : ''}${prop.comp_count} comps · ${prop.comp_radius_used || prop.comp_radius_miles || '?'}mi · ${prop.comp_lookback_used || '?'}d
+                                ${confLabel === 'LOW' ? '⚠ ' : ''}${prop.comp_count} comps · ${prop.comp_radius_used || prop.comp_radius_miles || '?'}mi · ${prop.comp_lookback_used || '?'}d ${prop.comp_variance_high ? '· ⟷ wide' : ''}
                             </span>
                             <span style="color:var(--text-dim);font-size:0.7rem;">
                                 · ${prop.comp_density || 'suburban'} ${prop.comp_category || 'residential'}
@@ -1445,11 +1570,33 @@
                 </div>
             `;
 
-            // Insert in score order
+            // Insert in current sort order
+            const price = prop.list_price || 0;
+            const profit = prop.price_deviation_pct;
             let inserted = false;
             for (const child of resultsEl.children) {
+                const childPrice = parseFloat(child.dataset.price || 0);
                 const childScore = parseFloat(child.dataset.score || 0);
-                if (score > childScore) {
+                const childProfit = child.dataset.profit !== '' ? parseFloat(child.dataset.profit) : null;
+                let cmp = false;
+                if (sortMode === 'price-asc') {
+                    cmp = price < childPrice;
+                } else if (sortMode === 'price-desc') {
+                    cmp = price > childPrice;
+                } else if (sortMode === 'profit-asc') {
+                    // Biggest discount (most negative) first
+                    const p1 = profit != null ? profit : 999;
+                    const p2 = childProfit != null ? childProfit : 999;
+                    cmp = p1 < p2;
+                } else if (sortMode === 'profit-desc') {
+                    // Most positive first
+                    const p1 = profit != null ? profit : -999;
+                    const p2 = childProfit != null ? childProfit : -999;
+                    cmp = p1 > p2;
+                } else { // score-desc
+                    cmp = score > childScore;
+                }
+                if (cmp) {
                     resultsEl.insertBefore(card, child);
                     inserted = true;
                     break;
@@ -1495,6 +1642,45 @@
             } catch (err) {
                 console.error('Save toggle failed:', err);
             }
+        }
+
+        // ─── Sort ─────────────────────────────────────────────────--
+        function setSort(mode) {
+            sortMode = mode;
+            // Update active button styling
+            document.querySelectorAll('.filters button[id^="s-"]').forEach(b => b.classList.remove('active'));
+            document.getElementById(`s-${mode}`).classList.add('active');
+            reSort();
+        }
+
+        function reSort() {
+            const resultsEl = document.getElementById('results');
+            const cards = Array.from(resultsEl.children).filter(c => c.classList.contains('prop-card'));
+            if (cards.length === 0) return;
+
+            cards.sort((a, b) => {
+                const aPrice = parseFloat(a.dataset.price || 0);
+                const bPrice = parseFloat(b.dataset.price || 0);
+                const aScore = parseFloat(a.dataset.score || 0);
+                const bScore = parseFloat(b.dataset.score || 0);
+                const aProfit = a.dataset.profit !== '' ? parseFloat(a.dataset.profit) : null;
+                const bProfit = b.dataset.profit !== '' ? parseFloat(b.dataset.profit) : null;
+                if (sortMode === 'price-asc') return aPrice - bPrice;
+                if (sortMode === 'price-desc') return bPrice - aPrice;
+                if (sortMode === 'profit-asc') {
+                    const pa = aProfit != null ? aProfit : 999;
+                    const pb = bProfit != null ? bProfit : 999;
+                    return pa - pb;
+                }
+                if (sortMode === 'profit-desc') {
+                    const pa = aProfit != null ? aProfit : -999;
+                    const pb = bProfit != null ? bProfit : -999;
+                    return pb - pa;
+                }
+                return bScore - aScore; // score-desc
+            });
+
+            cards.forEach(c => resultsEl.appendChild(c));
         }
 
         // ─── Filter ─────────────────────────────────────────────────
@@ -1660,6 +1846,51 @@
             }
         }
 
+        // ─── Comp Warning ────────────────────────────────────────────
+        function buildCompWarning(prop) {
+            const c = prop.comp_count || 0;
+            const v = prop.comp_variance_high;
+            const conf = prop.comp_confidence_label;
+
+            // High variance + low count — worst case
+            if (v && c < 3) {
+                return `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
+                        ⚠ Only ${c} comps with huge price spread — median is unreliable. Price score heavily reduced.
+                    </div>
+                `;
+            }
+
+            // Medium count + high variance
+            if (v && c < 5) {
+                return `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,170,0,0.08);border-radius:4px;border:1px solid rgba(255,170,0,0.15);font-size:0.75rem;color:var(--amber);">
+                        ⚡ ${c} comps with wide price spread — price signal reduced 25% for reliability
+                    </div>
+                `;
+            }
+
+            // Low count but reasonable spread
+            if (c > 0 && c < 3) {
+                return `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
+                        ⚠ Only ${c} comps found — score may be unreliable
+                    </div>
+                `;
+            }
+
+            // Low confidence from expanded search
+            if (conf === 'LOW' && c < 5) {
+                return `
+                    <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,170,0,0.08);border-radius:4px;border:1px solid rgba(255,170,0,0.15);font-size:0.75rem;color:var(--amber);">
+                        ⚡ Comps from expanded search (${prop.comp_lookback_used || 540}d) — price signal reduced
+                    </div>
+                `;
+            }
+
+            return '';
+        }
+
         // ─── Helpers ────────────────────────────────────────────────
         function goHome() {
             // Reset to initial state — close panels, clear results
@@ -1738,26 +1969,48 @@
                 const price = c.list_price || 0;
                 const addr = c.address || 'Unknown';
                 const url = getCompUrl(c, prop);
-                const bedsBaths = (c.beds || c.baths) ? `${c.beds || '?'}bd/${c.baths || '?'}ba` : '';
-                const sqft = c.sqft ? `${c.sqft.toLocaleString()}sf` : '';
                 const label = c.listing_status === 'sold' ? 'SOLD' : 'ACTIVE';
+                // Format sold date — use pre-formatted short date, or fall back to raw date for older data
+                let soldDate = '';
+                if (c.last_sold_date_short) {
+                    soldDate = ` · ${c.last_sold_date_short}`;
+                } else if (c.last_sold_date) {
+                    try {
+                        const d = new Date(c.last_sold_date);
+                        if (!isNaN(d.getTime())) {
+                            soldDate = ` · ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+                        }
+                    } catch (e) {}
+                }
                 const labelColor = c.listing_status === 'sold' ? 'rgba(255,68,102,0.08)' : 'rgba(68,255,102,0.08)';
                 const labelBorder = c.listing_status === 'sold' ? 'rgba(255,68,102,0.1)' : 'rgba(68,255,102,0.1)';
                 const labelTextColor = c.listing_status === 'sold' ? '#ff4466' : '';
 
                 const dist = c.distance_miles ? `${c.distance_miles.toFixed(1)}mi` : '';
+                const beds = c.beds != null ? `${c.beds}bd` : null;
+                const baths = c.baths != null ? `${c.baths}ba` : null;
+                const sqft = c.sqft ? `${c.sqft.toLocaleString()}sf` : null;
+                const acres = c.acres ? `${parseFloat(c.acres).toFixed(2)}ac` : null;
+                const thumbnail = c.primary_photo || null;
 
                 cards += `
                     <a class="comp-card" href="${url}" target="_blank" rel="noopener" title="Open ${addr} in new tab">
                         <span class="comp-open-icon">↗</span>
-                        <div class="comp-addr">${addr.length > 30 ? addr.slice(0, 28) + '...' : addr}</div>
-                        <div class="comp-price">$${price.toLocaleString()}</div>
-                        <div class="comp-meta">
-                            ${bedsBaths ? `<span>${bedsBaths}</span>` : ''}
-                            ${sqft ? `<span>${sqft}</span>` : ''}
-                            ${dist ? `<span>${dist}</span>` : ''}
+                        <div class="comp-inner">
+                            ${thumbnail ? `<img class="comp-thumb" src="${thumbnail}" alt="" onerror="this.style.display='none'">` : ''}
+                            <div class="comp-body">
+                                <div class="comp-addr">${addr.length > 35 ? addr.slice(0, 33) + '...' : addr}</div>
+                                <div class="comp-price">$${price.toLocaleString()}</div>
+                                <div class="comp-meta">
+                                    ${beds ? `<span class="comp-meta-item"><span class="m-label">🛏</span> ${beds}</span>` : ''}
+                                    ${baths ? `<span class="comp-meta-item"><span class="m-label">🚿</span> ${baths}</span>` : ''}
+                                    ${sqft ? `<span class="comp-meta-item"><span class="m-label">📐</span> ${sqft}</span>` : ''}
+                                    ${acres ? `<span class="comp-meta-item"><span class="m-label">🌲</span> ${acres}</span>` : ''}
+                                    ${dist ? `<span class="comp-meta-item"><span class="m-label">📍</span> ${dist}</span>` : ''}
+                                </div>
+                                <span class="comp-label" style="background:${labelColor};border-color:${labelBorder};color:${labelTextColor};">${label}${soldDate}</span>
+                            </div>
                         </div>
-                        <span class="comp-label" style="background:${labelColor};border-color:${labelBorder};color:${labelTextColor};">${label}</span>
                     </a>
                 `;
             });

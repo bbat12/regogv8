@@ -96,6 +96,13 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         ("comp_lookback_used", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_lookback_used INTEGER"),
         ("comp_confidence_label", "TEXT", "ALTER TABLE properties ADD COLUMN comp_confidence_label TEXT"),
         ("comp_staleness_penalty_applied", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_staleness_penalty_applied INTEGER"),
+        ("stories", "INTEGER", "ALTER TABLE properties ADD COLUMN stories INTEGER"),
+        ("primary_photo", "TEXT", "ALTER TABLE properties ADD COLUMN primary_photo TEXT"),
+        ("comp_price_range", "REAL", "ALTER TABLE properties ADD COLUMN comp_price_range REAL"),
+        ("comp_price_stddev", "REAL", "ALTER TABLE properties ADD COLUMN comp_price_stddev REAL"),
+        ("comp_variance_high", "INTEGER", "ALTER TABLE properties ADD COLUMN comp_variance_high INTEGER"),
+        ("filter_reason", "TEXT", "ALTER TABLE properties ADD COLUMN filter_reason TEXT"),
+        ("filter_type", "TEXT", "ALTER TABLE properties ADD COLUMN filter_type TEXT"),
     ]
 
     for col_name, col_type, sql in migrations:

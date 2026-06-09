@@ -102,9 +102,11 @@ def apply_comp_fallback(property_dict: dict, scores: dict) -> dict:
 
 def apply_confidence_cap(property_dict: dict, scores: dict) -> dict:
     """
-    Apply a 10-point cap reduction to the price_deviation score component
-    when comp_confidence_label is "LOW". A LOW confidence comp should not
-    be worth full points even if the deviation looks extreme.
+    Apply a cap reduction to the price_deviation score component
+    based on comp_confidence_label.
+
+    - LOW confidence: cap at 10 points (severe data shortage)
+    - MEDIUM confidence: cap at 20 points (moderate data shortage)
 
     Only modifies EXISTING numeric scores via the _fb_ prefix for safe
     filtering when summing. Does NOT add non-numeric keys to scores.
@@ -125,6 +127,44 @@ def apply_confidence_cap(property_dict: dict, scores: dict) -> dict:
                 current = scores[key]
                 if current > 10:
                     scores[key] = 10.0
+    elif conf_label == "MEDIUM":
+        for key in ("price_deviation", "price_per_acre_deviation"):
+            if key in scores:
+                current = scores[key]
+                if current > 20:
+                    scores[key] = 20.0
+
+    return scores
+
+
+def apply_variance_penalty(property_dict: dict, scores: dict) -> dict:
+    """
+    Apply additional penalty when comps are highly variable.
+
+    When comp_count < 5 AND comp_variance_high is True (range > 50% of median),
+    the price signals are unreliable. Reduce the price_deviation score
+    proportionally.
+
+    Args:
+        property_dict: The property being scored (contains comp_* fields).
+        scores: The current scores dict (mutated in-place).
+
+    Returns:
+        Updated scores dict with reduced price_deviation if applicable.
+    """
+    comp_count = property_dict.get("comp_count", 0) or 0
+    variance_high = property_dict.get("comp_variance_high", False)
+
+    if comp_count < 5 and variance_high and comp_count > 0:
+        # Reduce price signals proportionally to variance severity
+        reduction_pct = 0.25  # 25% reduction for high variance with few comps
+        for key in ("price_deviation", "price_per_acre_deviation"):
+            if key in scores:
+                current = scores[key]
+                if current > 0:
+                    scores[key] = round(current * (1 - reduction_pct), 1)
+
+        scores["_fb_variance_penalty"] = True
 
     return scores
 

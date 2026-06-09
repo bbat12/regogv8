@@ -151,6 +151,7 @@ def cmd_scan(args):
     from enrichment.brain import classify_property
     from enrichment.comp_engine import calculate_comps
     from enrichment.enricher import enrich_property
+    from enrichment.listing_filter import filter_listing
     from scoring.residential_score import score_residential
     from scoring.land_score import score_land
     from scoring.commercial_score import score_commercial
@@ -188,11 +189,11 @@ def cmd_scan(args):
 
         # Property type mapping for HomeHarvest API
         # HomeHarvest accepts: single_family, multi_family, condos, townhomes, condo_townhome_rowhome_coop,
-        #                      duplex_triplex, farm, land, mobile
+        #                      duplex_triplex, farm, land, mobile, apartment
         property_types = {
-            "residential": ["single_family", "multi_family", "condos", "townhomes", "duplex_triplex"],
-            "land": ["land"],
-            "commercial": ["multi_family"],  # MULTI_FAMILY = 5+ units; individual condo units use CONDOS/APARTMENT
+            "residential": ["single_family", "mobile"],  # Single family + mobile homes
+            "land": ["land"],                              # Vacant land only
+            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],  # Everything else except mobile
         }.get(args.scan_type)
 
         raw_listings = fetch_listings(
@@ -303,6 +304,21 @@ def cmd_scan(args):
                 prop["brain_red_flags"] = brain["red_flags"]  # list — DB layer serializes to JSON
                 prop["brain_green_flags"] = brain["green_flags"]  # list — DB layer serializes to JSON
                 prop["brain_seller_motivation"] = brain["seller_motivation"]
+
+                # Listing filter: catch auctions, bait prices, burned/demolished
+                filter_result = filter_listing(
+                    description=prop.get("listing_description"),
+                    list_price=prop.get("list_price"),
+                    sqft=prop.get("sqft"),
+                    style=prop.get("style"),
+                    brain_classification=prop.get("brain_classification"),
+                )
+                if filter_result:
+                    if filter_result["action"] == "skip":
+                        logger.info(f"Filtered out: {filter_result['reason']} — {prop.get('address', '?')}")
+                        continue
+                    prop["filter_reason"] = filter_result["reason"]
+                    prop["filter_type"] = filter_result["filter_type"]
 
                 # Phase 3: Enrich with assessor data and optional FEMA flood zone
                 prop = enrich_property(prop, skip_flood=args.skip_flood)
@@ -537,7 +553,11 @@ def cmd_schedule(args):
             )
             logger.info(f"Loaded {len(scheduled_sold_comps)} sold comps for scheduled scan")
 
-            raw = fetch_listings(location=location, listing_type="for_sale")
+            property_types = {
+                "residential": ["single_family", "mobile"],
+                "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],
+            }.get(scan_type) if scan_type != "land" else ["land"]
+            raw = fetch_listings(location=location, listing_type="for_sale", property_type=property_types)
             processed = 0
             hot = 0
             for r in raw:
@@ -555,6 +575,22 @@ def cmd_schedule(args):
                 prop["brain_red_flags"] = brain["red_flags"]  # list — DB layer serializes
                 prop["brain_green_flags"] = brain["green_flags"]  # list — DB layer serializes
                 prop["brain_seller_motivation"] = brain["seller_motivation"]
+
+                # Listing filter: catch auctions, bait prices, burned/demolished
+                from enrichment.listing_filter import filter_listing
+                filter_result = filter_listing(
+                    description=prop.get("listing_description"),
+                    list_price=prop.get("list_price"),
+                    sqft=prop.get("sqft"),
+                    style=prop.get("style"),
+                    brain_classification=prop.get("brain_classification"),
+                )
+                if filter_result:
+                    if filter_result["action"] == "skip":
+                        logger.info(f"Filtered out: {filter_result['reason']} — {prop.get('address', '?')}")
+                        continue
+                    prop["filter_reason"] = filter_result["reason"]
+                    prop["filter_type"] = filter_result["filter_type"]
 
                 # Phase 3: Enrich with assessor data (skip flood for speed in scheduled scans)
                 prop = enrich_property(prop, skip_flood=True)

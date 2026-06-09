@@ -51,13 +51,15 @@ COMP_DEFAULTS = {
     "max_radius_miles": 10,
     "similar_sqft_pct": 0.30,   # ±30% sqft for residential
     "similar_acres_pct": 0.50,  # ±50% acres for land
+    "similar_beds_range": 1,    # ±1 bedroom for comp matching
+    "similar_baths_range": 1,   # ±1 bathroom for comp matching
     "sold_months": 12,          # look back window
 }
 
 # ── Comp Search Radius (miles) ────────────────────────────────────────────────
 # Three tiers per property type per market density.
 # System tries Tier 1 first, expands outward if insufficient comps found.
-MIN_COMPS_REQUIRED = 3  # minimum comps before accepting a tier
+MIN_COMPS_REQUIRED = 5  # minimum comps before accepting a tier — expanded search tries harder to find 5+
 
 COMP_RADII = {
     "residential": {
@@ -82,7 +84,7 @@ COMP_RADII_DEFAULT = COMP_RADII["residential"]
 
 # ── Comp Expansion: Time Windows (days) ─────────────────────────────────────
 # After exhausting all radius tiers, expand lookback window in this order.
-COMP_LOOKBACK_TIERS = [180, 270, 365, 540]
+COMP_LOOKBACK_TIERS = [180, 270, 365, 540, 730]  # 2 years max lookback
 
 # Staleness penalty applied to comp confidence when lookback > 365 days
 COMP_STALENESS_PENALTY = 0.15  # 15% confidence reduction
@@ -96,6 +98,10 @@ COMP_CONFIDENCE_LOW = 0.00     # < 3 comps even after full expansion
 SCAN_DEFAULTS = {
     "past_days": 180,  # was 90 — increased to capture older inventory
 }
+
+# ── High-Rise Detection ──────────────────────────────────────────────────
+# Properties with this many stories and a CONDO style are reclassified as commercial.
+HIGH_RISE_MIN_STORIES = 5
 
 # ─── Rate Limits (seconds between requests) ──────────────────────────────────
 RATE_LIMITS = {

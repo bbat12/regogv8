@@ -30,6 +30,7 @@ CORS(app)
 _scan_progress: dict[str, queue.Queue] = {}  # session_id -> Queue of property dicts
 _scan_status: dict[str, dict] = {}            # session_id -> status metadata
 _scan_status_lock: threading.Lock = threading.Lock()  # protects _scan_status
+_cancel_events: dict[str, threading.Event] = {}        # session_id -> Event, set when cancel requested
 _saved_properties: set[str] = set()            # set of listing_ids
 
 # Ensure we capture all logging (including stderr for debugging thread errors)
@@ -137,6 +138,22 @@ def get_scan_status(session_id):
     return jsonify(status)
 
 
+@app.route("/api/scan/<session_id>/cancel", methods=["POST"])
+def cancel_scan(session_id):
+    """Cancel a running scan."""
+    if session_id in _cancel_events:
+        _cancel_events[session_id].set()
+        status = _scan_status.get(session_id, {})
+        status["status"] = "cancelling"
+        with _scan_status_lock:
+            _scan_status[session_id] = status
+        return jsonify({"status": "cancelling", "session_id": session_id})
+    else:
+        # Already completed or doesn't exist
+        status = _scan_status.get(session_id, {"status": "unknown"})
+        return jsonify({"status": status.get("status", "unknown")})
+
+
 @app.route("/api/scan/<session_id>/stream")
 def stream_scan(session_id):
     """SSE endpoint that streams properties as they're scored."""
@@ -202,9 +219,10 @@ def start_scan():
     session_id = create_scan_session(conn, scan_type, search_params)
     conn.close()
 
-    # Set up progress queue and status
+    # Set up progress queue, cancel event, and status
     q: queue.Queue = queue.Queue()
     _scan_progress[session_id] = q
+    _cancel_events[session_id] = threading.Event()
     _scan_status[session_id] = {
         "status": "running",
         "session_id": session_id,
@@ -307,6 +325,7 @@ def _run_scan_background(
     from enrichment.brain import classify_property
     from enrichment.comp_engine import calculate_comps
     from enrichment.enricher import enrich_property
+    from enrichment.listing_filter import filter_listing
     from scoring.residential_score import score_residential
     from scoring.land_score import score_land
     from scoring.commercial_score import score_commercial
@@ -314,6 +333,7 @@ def _run_scan_background(
     conn = get_connection()
     processed = 0
     hot_count = 0
+    filtered_out = 0
 
     try:
         def _update_status(status_dict: dict):
@@ -340,11 +360,11 @@ def _run_scan_background(
 
         # Fetch listings
         # HomeHarvest accepts: single_family, multi_family, condos, townhomes, condo_townhome_rowhome_coop,
-        #                      duplex_triplex, farm, land, mobile
+        #                      duplex_triplex, farm, land, mobile, apartment
         property_types = {
-            "residential": ["single_family", "multi_family", "condos", "townhomes", "duplex_triplex"],
-            "land": ["land"],
-            "commercial": ["multi_family"],  # MULTI_FAMILY = 5+ units; individual condo units use CONDOS/APARTMENT
+            "residential": ["single_family", "mobile"],  # Single family + mobile homes
+            "land": ["land"],                              # Vacant land only
+            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],  # Everything else except mobile
         }.get(scan_type)
 
         raw_listings = fetch_listings(
@@ -389,6 +409,13 @@ def _run_scan_background(
         status["total"] = total
         _update_status(status)
 
+        # Check for cancel request before processing
+        if _cancel_events.get(session_id, threading.Event()).is_set():
+            logger.info(f"Scan {session_id} cancelled by user before processing")
+            progress_q.put(None)
+            conn.close()
+            return
+
         # Process each property
         for i, raw in enumerate(raw_listings):
             try:
@@ -420,6 +447,23 @@ def _run_scan_background(
                 prop["brain_red_flags"] = brain["red_flags"]
                 prop["brain_green_flags"] = brain["green_flags"]
                 prop["brain_seller_motivation"] = brain["seller_motivation"]
+
+                # Listing filter: catch auctions, bait prices, burned/demolished
+                filter_result = filter_listing(
+                    description=prop.get("listing_description"),
+                    list_price=prop.get("list_price"),
+                    sqft=prop.get("sqft"),
+                    style=prop.get("style"),
+                    brain_classification=prop.get("brain_classification"),
+                )
+                if filter_result:
+                    if filter_result["action"] == "skip":
+                        logger.info(f"Filtered out: {filter_result['reason']} — {prop.get('address', '?')}")
+                        filtered_out += 1
+                        continue
+                    # 'flag' level: keep but tag it
+                    prop["filter_reason"] = filter_result["reason"]
+                    prop["filter_type"] = filter_result["filter_type"]
 
                 # Enrich
                 prop = enrich_property(prop, skip_flood=skip_flood)
@@ -455,6 +499,21 @@ def _run_scan_background(
                     hot_count += 1
                 processed += 1
 
+                # Check for cancel request
+                if _cancel_events.get(session_id, threading.Event()).is_set():
+                    logger.info(f"Scan {session_id} cancelled by user after {processed} properties")
+                    status["status"] = "cancelled"
+                    status["progress"] = processed
+                    status["properties_found"] = processed
+                    status["hot_leads"] = hot_count
+                    status["filtered_out"] = filtered_out
+                    _update_status(status)
+                    complete_scan_session(conn, session_id, processed, hot_count)
+                    conn.commit()
+                    progress_q.put(None)
+                    conn.close()
+                    return
+
                 # Update status every 10 properties
                 if i % 10 == 0:
                     status["progress"] = i
@@ -477,6 +536,7 @@ def _run_scan_background(
         status["hot_count"] = hot_count
         status["properties_found"] = processed
         status["hot_leads"] = hot_count
+        status["filtered_out"] = filtered_out
         status["completed_at"] = datetime.utcnow().isoformat()
         _update_status(status)
 
@@ -492,6 +552,7 @@ def _run_scan_background(
         complete_scan_session(conn, session_id, processed, hot_count)
         conn.commit()
     finally:
+        _cancel_events.pop(session_id, None)
         conn.close()
 
 

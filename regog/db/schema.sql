@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS properties (
     comp_radius_miles REAL,
     comp_price_per_sqft_median REAL,
     comp_price_per_acre_median REAL,
+    stories INTEGER,                -- Number of building stories (for high-rise condo detection)
+    primary_photo TEXT,             -- URL to the listing's primary image
     property_url TEXT,              -- Direct Realtor.com detail URL
     style TEXT,                     -- Property type for comp matching: SINGLE_FAMILY, CONDOS, TOWNHOMES, MULTI_FAMILY, LAND
     comp_confidence TEXT,           -- 'HIGH' | 'MEDIUM' | 'LOW' based on comp count

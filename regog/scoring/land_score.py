@@ -4,7 +4,7 @@ Land Scoring — 0-100 score for vacant land / acreage properties.
 
 from typing import Optional
 from config import LAND_WEIGHTS, TIER_THRESHOLDS, FLOOD_SCORES
-from scoring.utils import assign_tier, parse_flags, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap
+from scoring.utils import assign_tier, parse_flags, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap, apply_variance_penalty
 
 
 def score_price_per_acre_deviation(prop: dict) -> float:
@@ -157,8 +157,11 @@ def score_land(property_dict: dict) -> dict:
     # This may modify scores in place (adding price_deviation from estimated_value)
     scores = apply_comp_fallback(property_dict, scores)
 
-    # Apply confidence cap: if comp_confidence_label is LOW, cap price_deviation at 10
+    # Apply confidence cap: if comp_confidence_label is LOW/MEDIUM, cap price_deviation
     scores = apply_confidence_cap(property_dict, scores)
+
+    # Apply variance penalty: high-variance comps reduce price signal reliability
+    scores = apply_variance_penalty(property_dict, scores)
 
     # Recalculate total from possibly-updated scores (fallback may have added proxy)
     # Filter out _fb_ metadata keys (strings, booleans) — only numeric score keys
