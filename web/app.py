@@ -499,8 +499,20 @@ def _run_scan_background(
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
+                # Add score completeness data
+                from scoring.utils import get_score_completeness
+                prop["completeness"] = get_score_completeness(prop)
+
+                # Save transient fields before DB upsert
+                cap_rate_data = prop.pop("cap_rate_data", None)
+
                 # Upsert to DB
                 upsert_property(conn, prop)
+
+                # Restore transient fields for SSE stream
+                if cap_rate_data:
+                    prop["cap_rate_data"] = cap_rate_data
+                # completeness stays on prop for SSE stream (not in DB but useful for UI)
 
                 # Push to SSE stream
                 progress_q.put(dict(prop))

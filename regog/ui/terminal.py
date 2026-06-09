@@ -62,6 +62,7 @@ def render_leads_table(properties: list[dict], title: str = "Leads") -> Table:
     table.add_column("VS MEDIAN", width=12, justify="right")
     table.add_column("TYPE", width=14)
     table.add_column("DOM", width=6, justify="right")
+    table.add_column("COMPS", width=10)
     table.add_column("FLAGS", width=30)
 
     for prop in properties[:50]:  # Limit display
@@ -92,6 +93,19 @@ def render_leads_table(properties: list[dict], title: str = "Leads") -> Table:
             dev_str = "N/A"
             dev_style = "dim"
 
+        # Comp count + confidence
+        comp_count = prop.get("comp_count") or 0
+        conf_label = prop.get("comp_confidence_label", "")
+        comps_str = f"{comp_count}" if comp_count else "-"
+        if conf_label == "LOW":
+            comps_str += " ⚠"
+
+        # Cap rate for commercial
+        cap_data = prop.get("cap_rate_data")
+        cap_str = ""
+        if cap_data and cap_data.get("estimated_cap_rate", 0) > 0:
+            cap_str = f"Cap: ~{cap_data['estimated_cap_rate']:.1f}%"
+
         table.add_row(
             tier_text,
             Text(score_str, style=score_style),
@@ -100,6 +114,7 @@ def render_leads_table(properties: list[dict], title: str = "Leads") -> Table:
             Text(dev_str, style=dev_style),
             scan_type.capitalize(),
             str(dom),
+            comps_str,
             flags,
         )
 

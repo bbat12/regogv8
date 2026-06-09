@@ -329,6 +329,7 @@ def cmd_scan(args):
                     prop["filter_type"] = filter_result["filter_type"]
 
                 # Phase 3: Enrich with assessor data and optional FEMA flood zone
+                # Also enriches acreage for land parcels via acreage_enricher
                 prop = enrich_property(prop, skip_flood=args.skip_flood)
 
                 # Calculate comps against sold data for this property
@@ -352,11 +353,20 @@ def cmd_scan(args):
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
-                # Remove transient fields that don't exist in DB schema
-                prop.pop("cap_rate_data", None)
+                # Add score completeness data (Part 7)
+                from scoring.utils import get_score_completeness
+                prop["completeness"] = get_score_completeness(prop)
+
+                # Save transient fields before DB upsert, restore after
+                cap_rate_data = prop.pop("cap_rate_data", None)
 
                 # Upsert to DB
                 upsert_property(conn, prop)
+
+                # Restore transient fields for display
+                if cap_rate_data:
+                    prop["cap_rate_data"] = cap_rate_data
+                # completeness stays on prop for CLI display (not in DB but useful)
 
                 if prop.get("lead_tier") == "HOT":
                     hot_count += 1
@@ -377,6 +387,9 @@ def cmd_scan(args):
         if session_props:
             table = render_leads_table(session_props, title=f"Results: {args.location}")
             console.print(table)
+
+            # Detailed CLI output for top properties
+            _print_property_details(session_props)
         else:
             render_info("No properties scored. Try adjusting search parameters.")
 
@@ -619,11 +632,20 @@ def cmd_schedule(args):
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
-                # Remove transient fields that don't exist in DB schema
-                prop.pop("cap_rate_data", None)
+                # Add score completeness data (Part 7)
+                from scoring.utils import get_score_completeness
+                prop["completeness"] = get_score_completeness(prop)
+
+                # Save transient fields before DB upsert, restore after
+                cap_rate_data = prop.pop("cap_rate_data", None)
 
                 from db.database import upsert_property
                 upsert_property(conn, prop)
+
+                # Restore transient fields for display
+                if cap_rate_data:
+                    prop["cap_rate_data"] = cap_rate_data
+                # completeness stays on prop for CLI display (not in DB but useful)
 
                 if prop.get("lead_tier") == "HOT":
                     hot += 1
@@ -659,6 +681,90 @@ def cmd_schedule(args):
     except KeyboardInterrupt:
         render_info("\nScheduler stopped")
         scheduler.shutdown()
+
+
+def _compute_completeness(prop: dict) -> dict:
+    """
+    Compute score completeness on the fly for DB-loaded properties.
+    Mirrors get_score_completeness() logic for props lacking the pre-computed field.
+    """
+    factors = {
+        "price_deviation": prop.get("comp_median_price") is not None,
+        "assessor_gap": prop.get("assessed_value") is not None,
+        "days_on_market": prop.get("days_on_market") is not None,
+        "condition": prop.get("year_built") is not None,
+        "flood_zone": prop.get("flood_zone") not in (None, "UNKNOWN"),
+    }
+    factors_with_data = sum(factors.values())
+    total_factors = len(factors)
+    pct = int((factors_with_data / total_factors) * 100) if total_factors > 0 else 0
+    missing = [k for k, v in factors.items() if not v]
+
+    if pct >= 80:
+        badge, badge_color = "COMPLETE", "green"
+    elif pct >= 60:
+        badge, badge_color = "PARTIAL", "yellow"
+    else:
+        badge, badge_color = "LIMITED DATA", "red"
+
+    return {
+        "factors_with_data": factors_with_data,
+        "total_factors": total_factors,
+        "completeness_pct": pct,
+        "missing_factors": missing,
+        "badge": badge,
+        "badge_color": badge_color,
+    }
+
+
+def _print_property_details(properties: list[dict]):
+    """
+    Print detailed info for top properties after the main table.
+    Shows cap rate, completeness, and acreage warnings.
+    """
+    from ui.terminal import console
+
+    for prop in properties[:10]:  # Top 10
+        tier = prop.get("lead_tier", "")
+        if tier not in ("HOT", "WARM"):
+            continue
+
+        console.print()
+        console.print(f"[bold white]── {prop.get('address', '?')} ({tier})[/bold white]")
+
+        # Cap rate for commercial (from in-memory props only)
+        cap_data = prop.get("cap_rate_data")
+        if cap_data and cap_data.get("estimated_cap_rate", 0) > 0:
+            console.print(
+                f"  [dim]📊 Est. Cap Rate:[/dim] [green]~{cap_data['estimated_cap_rate']:.1f}%[/green] | "
+                f"[dim]NOI:[/dim] [white]~${cap_data['estimated_noi']:,.0f}/yr[/white] | "
+                f"[dim]GRM:[/dim] [white]~{cap_data['estimated_grm']:.1f}x[/white]"
+            )
+            console.print(f"     [dim](based on ${cap_data['rent_psf_used']:.2f}/sqft/mo market rent)[/dim]")
+
+        # Score completeness (compute on the fly for DB-loaded props)
+        comp = prop.get("completeness") or _compute_completeness(prop)
+        if comp:
+            missing_str = ", ".join(comp.get("missing_factors", []))
+            badge = comp.get("badge", "")
+            badge_color = {
+                "COMPLETE": "green",
+                "PARTIAL": "yellow",
+                "LIMITED DATA": "red",
+            }.get(badge, "dim")
+            console.print(
+                f"  [dim]📋 Data:[/dim] [white]{comp['factors_with_data']}/{comp['total_factors']}[/white] factors "
+                f"([{badge_color}]{badge}[/{badge_color}])"
+                + (f" | [dim]Missing:[/dim] [red]{missing_str}[/red]" if missing_str else "")
+            )
+
+        # Acreage warning for land
+        if prop.get("acres_estimated"):
+            console.print(
+                f"  [yellow]⚠[/yellow] [yellow]Acreage ESTIMATED:[/yellow] ~{prop['acres']}ac "
+                f"[dim](source: {prop.get('acres_source', 'unknown')})[/dim] "
+                f"[yellow]— verify before purchasing[/yellow]"
+            )
 
 
 if __name__ == "__main__":

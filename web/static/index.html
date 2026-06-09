@@ -1439,11 +1439,14 @@
                     </span>
                     ${prop.comp_count ? `<span class="item"><span class="label">Comps</span><span class="value white">${prop.comp_count}</span></span>` : ''}
                 </div>
-                ${flagsHtml ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flagsHtml}</div>` : ''}
-                <div class="card-score-bar" onclick="toggleExpand('${prop.listing_id}')">
-                    <div class="card-score-bar-fill" style="width:${Math.min(score, 100)}%;background:${scoreColor};"></div>
-                </div>
-                <div class="prop-detail" id="detail-${prop.listing_id}">
+                ${flagsHtml ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flagsHtml}</div>` : ''}    <div class="card-score-bar" onclick="toggleExpand('${prop.listing_id}')">
+                        <div class="card-score-bar-fill" style="width:${Math.min(score, 100)}%;background:${scoreColor};"></div>
+                    </div>
+
+                    <!-- Score completeness badge (Part 7) -->
+                    ${renderCompletenessBadge(prop)}
+
+                    <div class="prop-detail" id="detail-${prop.listing_id}">
                     <div class="detail-grid">
                         <div class="detail-item">
                             <span class="label">List Price</span>
@@ -1501,11 +1504,16 @@
                         </div>
                     </div>
 
+                    <!-- Cap Rate Section (Part 2) — only for commercial properties -->
+                    ${buildCapRateSection(prop)}
+
                     ${buildCompWarning(prop)}
 
-                    ${prop.scan_type === 'land' && !prop.acres ? `
+                    ${prop.scan_type === 'land' && (!prop.acres || prop.acres_estimated) ? `
                     <div style="margin-top:0.5rem;padding:0.35rem 0.65rem;background:rgba(255,68,102,0.08);border-radius:4px;border:1px solid rgba(255,68,102,0.12);font-size:0.75rem;color:#ff4466;">
-                        ⚠ Acreage unknown — land score is approximate
+                        ${!prop.acres
+                            ? '⚠ Acreage unknown — land score is approximate'
+                            : '⚠ Acreage estimated (~' + prop.acres + 'ac) — verify with county records before purchasing'}
                     </div>
                     ` : ''}
 
@@ -1844,6 +1852,94 @@
             } catch (err) {
                 el.innerHTML = '<p style="color:#ff4466;font-size:0.85rem;">Failed to load saved.</p>';
             }
+        }
+
+        // ─── Score Completeness Badge ────────────────────────────────
+        function renderCompletenessBadge(prop) {
+            // Use server-computed completeness if available, otherwise compute client-side
+            const comp = prop.completeness || getScoreCompleteness(prop);
+            if (!comp) return '';
+
+            const badgeColor = comp.badge_color || '#666';
+            const badge = comp.badge || 'UNKNOWN';
+            const missing = comp.missing_factors || [];
+            const missingTitle = missing.length > 0 ? `Missing: ${missing.join(', ')}` : '';
+
+            return `
+                <div style="margin-top:6px;font-size:11px;display:flex;align-items:center;gap:8px;" onclick="toggleExpand('${prop.listing_id}')">
+                    <span style="color:${badgeColor};font-weight:bold;">${badge}</span>
+                    <span style="color:var(--text-dim);">Score based on ${comp.factors_with_data} of ${comp.total_factors} factors</span>
+                    ${missing.length > 0 ? `<span style="color:#555;cursor:help;" title="${missingTitle}">ⓘ</span>` : ''}
+                </div>
+            `;
+        }
+
+        // ─── Score Completeness (client-side computation) ─────────────
+        function getScoreCompleteness(prop) {
+            if (!prop) return null;
+            const factors = {
+                price_deviation: prop.comp_median_price != null && prop.comp_median_price > 0,
+                assessor_gap: prop.assessed_value != null && prop.assessed_value > 0,
+                days_on_market: prop.days_on_market != null,
+                condition: prop.year_built != null,
+                flood_zone: prop.flood_zone != null && prop.flood_zone !== 'UNKNOWN',
+            };
+            const factorsWithData = Object.values(factors).filter(Boolean).length;
+            const totalFactors = Object.keys(factors).length;
+            const pct = totalFactors > 0 ? Math.round((factorsWithData / totalFactors) * 100) : 0;
+            const missing = Object.entries(factors).filter(([k, v]) => !v).map(([k]) => k);
+
+            let badge, badgeColor;
+            if (pct >= 80) { badge = 'COMPLETE'; badgeColor = 'var(--green)'; }
+            else if (pct >= 60) { badge = 'PARTIAL'; badgeColor = 'var(--amber)'; }
+            else { badge = 'LIMITED DATA'; badgeColor = '#ff4466'; }
+
+            return {
+                factors_with_data: factorsWithData,
+                total_factors: totalFactors,
+                completeness_pct: pct,
+                missing_factors: missing,
+                badge: badge,
+                badge_color: badgeColor,
+            };
+        }
+
+        // ─── Cap Rate Section ───────────────────────────────────────────
+        function buildCapRateSection(prop) {
+            const capData = prop.cap_rate_data;
+            if (!capData || !capData.estimated_cap_rate || capData.estimated_cap_rate <= 0) {
+                return '';
+            }
+
+            const capRate = capData.estimated_cap_rate.toFixed(1);
+            const noi = capData.estimated_noi || 0;
+            const grm = capData.estimated_grm || 0;
+            const rentPsf = capData.rent_psf_used || 0;
+
+            return `
+                <div class="cap-rate-section" style="border-top:1px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:8px;">
+                    <div style="color:var(--text-dim);font-size:11px;margin-bottom:4px;">
+                        📊 CAP RATE ESTIMATE <span style="color:#555;font-size:10px;">(market avg rents)</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                        <div>
+                            <div style="color:#aaa;font-size:10px;">EST. CAP RATE</div>
+                            <div style="color:var(--green);font-size:16px;font-weight:bold;">~${capRate}%</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa;font-size:10px;">EST. NOI/YR</div>
+                            <div style="color:var(--text);font-size:14px;">~$${(noi).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                        </div>
+                        <div>
+                            <div style="color:#aaa;font-size:10px;">EST. GRM</div>
+                            <div style="color:var(--text);font-size:14px;">~${grm.toFixed(1)}x</div>
+                        </div>
+                    </div>
+                    <div style="color:#555;font-size:10px;margin-top:4px;">
+                        Based on $${rentPsf.toFixed(2)}/sqft/mo market rent estimate · verify with local comps
+                    </div>
+                </div>
+            `;
         }
 
         // ─── Comp Warning ────────────────────────────────────────────

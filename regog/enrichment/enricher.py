@@ -41,6 +41,15 @@ def enrich_property(property_dict: dict, skip_flood: bool = False) -> dict:
     """
     prop = dict(property_dict)  # Don't mutate original
 
+    # Step 0: Acreage enrichment for land parcels (Part 1 fix)
+    from enrichment.acreage_enricher import enrich_acreage
+    prop = enrich_acreage(prop)
+    if prop.get("acres_estimated"):
+        logger.info(
+            f"[acreage] Estimated {prop['acres']}ac for {prop.get('address', '?')} "
+            f"via {prop.get('acres_source')} (price: ${prop.get('list_price')})"
+        )
+
     # Step 1: Assessor enrichment
     prop = enrich_with_assessor_data(prop)
 

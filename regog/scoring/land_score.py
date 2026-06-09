@@ -44,7 +44,8 @@ def score_price_per_acre_deviation(prop: dict) -> float:
 
     # Percentile band scoring (same bands as residential score_price_deviation)
     conf_label = prop.get("comp_confidence_label", "HIGH")
-    
+    acres_estimated = prop.get("acres_estimated", False)
+
     if deviation_pct <= -60:
         score = 40.0
     elif deviation_pct <= -50:
@@ -71,6 +72,11 @@ def score_price_per_acre_deviation(prop: dict) -> float:
         score *= 0.5
     elif conf_label == "MEDIUM":
         score *= 0.75
+
+    # Apply estimated acreage penalty (Part 1 fix):
+    # When acreage is estimated (not measured), reduce confidence by 30%
+    if acres_estimated:
+        score *= 0.70
     
     return max(-10.0, min(40.0, score))
 
@@ -217,17 +223,36 @@ def score_land(property_dict: dict) -> dict:
     }
 
     if not has_acreage:
-        # Redistribute the 50% weight (price_per_acre 40% + acreage_premium 10%)
-        # across available signals proportionally
-        # Zoning 20→33, Road 10→17, Utilities 10→17, Flood 10→17
-        # This keeps total < 70 so no HOT leads without acreage data
-        total = (
-            zoning_score * (33.0 / 20.0) +
-            road_score * (17.0 / 10.0) +
-            utilities_score * (17.0 / 10.0) +
-            flood_score * (17.0 / 10.0)
-        )
-        data_confidence = "LOW"
+        # After acreage enrichment, check if we still have no acreage
+        # (enrich_acreage may have added an estimate from price heuristic)
+        acres_after_enrich = property_dict.get("acres")
+        has_acreage_after = acres_after_enrich is not None and float(acres_after_enrich) > 0
+
+        if has_acreage_after:
+            # We have estimated acreage — recalculate price_score with the estimate
+            # (the acres_estimated flag is already handled inside score_price_per_acre_deviation)
+            price_score = score_price_per_acre_deviation(property_dict)
+            scores["price_per_acre_deviation"] = price_score
+            # Recalculate assessor gap with actual acreage
+            assessor_gap_score = score_land_assessor_gap(property_dict)
+            scores["assessor_gap"] = assessor_gap_score
+            # Flag as estimated on the scores dict
+            scores["_fb_acres_estimated"] = True
+            # Use estimated acreage — higher score possible but capped
+            total = price_score + zoning_score + road_score + utilities_score + acreage_premium + flood_score
+            data_confidence = "LOW"
+        else:
+            # Redistribute the 50% weight (price_per_acre 40% + acreage_premium 10%)
+            # across available signals proportionally
+            # Zoning 20→33, Road 10→17, Utilities 10→17, Flood 10→17
+            # This keeps total < 70 so no HOT leads without acreage data
+            total = (
+                zoning_score * (33.0 / 20.0) +
+                road_score * (17.0 / 10.0) +
+                utilities_score * (17.0 / 10.0) +
+                flood_score * (17.0 / 10.0)
+            )
+            data_confidence = "LOW"
     elif price_score == 0 and zoning_score > 0:
         # Has acres but no comp_price_per_acre data — use price_deviation_pct from comp engine
         # (which compares total prices, not per-acre) as a fallback
