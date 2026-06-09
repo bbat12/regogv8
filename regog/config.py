@@ -37,11 +37,9 @@ COMMERCIAL_WEIGHTS = {
 
 # ─── Lead Tiers (score thresholds) ───────────────────────────────────────────
 TIER_THRESHOLDS = {
-    "HOT": 70,
-    "WARM": 50,
-    "NEUTRAL": 35,
-    "RISKY": 20,
-    "SKIP": 0,
+    "HOT": 100,   # Only scores above 100 (uncapped) qualify as HOT
+    "MEDIUM": 50, # 50-100: solid leads worth investigating
+    "WARM": 0,    # 0-49: low-priority, needs more data
 }
 
 # ─── Comp Engine ─────────────────────────────────────────────────────────────
@@ -99,6 +97,16 @@ COMP_CONFIDENCE_LOW = 0.00     # < 3 comps even after full expansion
 SOLD_COMPS_BASE = 300          # minimum pool size
 SOLD_COMPS_PER_LISTING = 0.15  # 15% of active listing count
 SOLD_COMPS_MAX = 2000          # hard cap
+
+
+def get_comp_pool_size(active_listing_count: int) -> int:
+    """
+    Calculate appropriate comp pool size for this scan.
+    Scales with listing volume: more listings = bigger comp pool.
+    """
+    dynamic_size = int(active_listing_count * SOLD_COMPS_PER_LISTING)
+    return max(SOLD_COMPS_BASE, min(dynamic_size, SOLD_COMPS_MAX))
+
 
 # ─── Scan Defaults ───────────────────────────────────────────────────────────
 SCAN_DEFAULTS = {

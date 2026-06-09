@@ -29,16 +29,17 @@ def standard_residential():
 
 @pytest.fixture
 def hot_deal_residential():
-    """A screaming deal — deeply discounted, long DOM, large assessor gap."""
+    """A screaming deal — deeply discounted, fresh listing, large assessor gap.
+    Must score >= 100 for HOT tier with the new threshold system."""
     return {
         "comp_count": 10,                     # Enough comps for reliable scoring
-        "price_deviation_pct": -45.0,         # Way below median
-        "days_on_market": 150,                # 91-180 days bracket → 5 pts
+        "price_deviation_pct": -60.0,         # -60% below median → 40 pts (max)
+        "days_on_market": 0,                  # Fresh listing → 15 pts (max)
         "assessed_value": 400000,
-        "list_price": 220000,                 # Assessed way above list → big gap
-        "brain_classification": "vacant",      # Vacant condition → 10 pts
-        "flood_zone": "X",                    # No flood risk
-        "permit_flags": {"permit_risk": "low"},  # Permits mentioned → bonus
+        "list_price": 220000,                 # Assessed way above list → 20 pts (max)
+        "brain_classification": "standard",    # Standard condition → 15 pts (max)
+        "flood_zone": "X",                    # No flood risk → 10 pts (max)
+        "permit_flags": {"permit_risk": "low"},  # Permits mentioned → +3 pts
     }
 
 

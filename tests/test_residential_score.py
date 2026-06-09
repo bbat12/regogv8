@@ -353,7 +353,7 @@ class TestEdgeCases:
         """Test a handful of known score calculations with new PDev scoring."""
         prop = {
             "comp_count": 10,                 # Enough comps to avoid fallback cap
-            "price_deviation_pct": -50.0,    # 36 pts (50-60% band)
+            "price_deviation_pct": -60.0,    # 40 pts (60%+ below band)
             "days_on_market": 30,             # 15 pts
             "assessed_value": 200000,
             "list_price": 100000,              # gap = 50% → capped at 20 pts
@@ -362,15 +362,15 @@ class TestEdgeCases:
             "permit_flags": {"permit_risk": "low"},  # +3 pts
         }
         result = score_residential(prop)
-        # New PDev: -50% → 36 (50-60% band), not 40
-        assert result["scores"]["price_deviation"] == 36.0
+        # New PDev: -60% → 40 (60%+ below band)
+        assert result["scores"]["price_deviation"] == 40.0
         assert result["scores"]["dom_signal"] == 15
         assert result["scores"]["assessor_gap"] == 20.0
         assert result["scores"]["condition"] == 15
         assert result["scores"]["flood_penalty"] == 10
         assert result["scores"]["permit_risk"] == 3
-        # New total: 36 + 15 + 20 + 15 + 10 + 3 = 99
-        assert result["total"] == pytest.approx(99.0, abs=0.1)
+        # New total: 40 + 15 + 20 + 15 + 10 + 3 = 103
+        assert result["total"] == pytest.approx(103.0, abs=0.1)
         assert result["tier"] == "HOT"
 
 

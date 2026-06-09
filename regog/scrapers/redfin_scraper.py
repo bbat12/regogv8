@@ -56,7 +56,7 @@ def normalize_sold_listing(raw: dict, scan_type: str = "residential") -> dict | 
 
     def num(v):
         try:
-            return int(v) if v else None
+            return int(v) if v is not None else None
         except (ValueError, TypeError):
             try:
                 return int(float(v))

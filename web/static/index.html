@@ -453,6 +453,13 @@
             border: none;
         }
 
+        .badge-medium {
+            background: linear-gradient(135deg, #44aaff 0%, #0088cc 100%);
+            color: #fff;
+            box-shadow: 0 0 6px rgba(68, 170, 255, 0.3);
+            border: none;
+        }
+
         .badge-score {
             font-family: 'Orbitron', monospace;
             font-size: 0.85rem;
@@ -848,7 +855,6 @@
             gap: 0.5rem;
             overflow-x: auto;
             padding-bottom: 0.4rem;
-            scroll-snap-type: x mandatory;
             -webkit-overflow-scrolling: touch;
         }
 
@@ -878,7 +884,6 @@
             padding: 0.6rem 0.75rem;
             cursor: pointer;
             transition: all 0.2s;
-            scroll-snap-align: start;
             text-decoration: none;
             display: block;
             color: var(--text);
@@ -1020,11 +1025,11 @@
             </div>
             <div class="scan-field">
                 <label>Min Price</label>
-                <input type="number" id="price-min" placeholder="e.g. 50000" value="50000">
+                <input type="number" id="price-min" placeholder="e.g. 0" value="0">
             </div>
             <div class="scan-field">
                 <label>Max Price</label>
-                <input type="number" id="price-max" placeholder="e.g. 400000" value="400000">
+                <input type="number" id="price-max" placeholder="e.g. 1000000000000" value="1000000000000">
             </div>
             <div class="scan-field">
                 <label>&nbsp;</label>
@@ -1046,6 +1051,10 @@
             <div class="stat-card stat-hot">
                 <span class="stat-number" id="stat-hot">0</span>
                 <span class="stat-label">🔥 HOT</span>
+            </div>
+            <div class="stat-card stat-warm">
+                <span class="stat-number" id="stat-medium">0</span>
+                <span class="stat-label">🔶 MEDIUM</span>
             </div>
             <div class="stat-card stat-warm">
                 <span class="stat-number" id="stat-warm">0</span>
@@ -1095,13 +1104,14 @@
             <div class="filters" id="filters" style="display:none;">
                 <button class="filter-btn active" onclick="filterTier('all')" id="f-all">All</button>
                 <button class="filter-btn" onclick="filterTier('HOT')" id="f-HOT">🔥 HOT</button>
+                <button class="filter-btn" onclick="filterTier('MEDIUM')" id="f-MEDIUM">🔶 MEDIUM</button>
                 <button class="filter-btn" onclick="filterTier('WARM')" id="f-WARM">🌡 WARM</button>
                 <span style="color:var(--text-dim);margin:0 0.25rem;">|</span>
-                <button class="filter-btn active" onclick="setSort('price-asc')" id="s-price-asc">$ ↑</button>
+                <button class="filter-btn" onclick="setSort('price-asc')" id="s-price-asc">$ ↑</button>
                 <button class="filter-btn" onclick="setSort('price-desc')" id="s-price-desc">$ ↓</button>
                 <button class="filter-btn" onclick="setSort('profit-asc')" id="s-profit-asc">% ↓</button>
                 <button class="filter-btn" onclick="setSort('profit-desc')" id="s-profit-desc">% ↑</button>
-                <button class="filter-btn" onclick="setSort('score-desc')" id="s-score-desc">Score ↓</button>
+                <button class="filter-btn active" onclick="setSort('score-desc')" id="s-score-desc">Score ↓</button>
             </div>
         </div>
 
@@ -1122,7 +1132,7 @@
         let allProperties = [];
         let savedListingIds = new Set();
         let currentFilter = 'all';
-        let sortMode = 'price-asc';  // 'price-asc', 'price-desc', 'profit-asc', 'profit-desc', 'score-desc'
+        let sortMode = 'score-desc';  // 'price-asc', 'price-desc', 'profit-asc', 'profit-desc', 'score-desc'
         let scanActive = false;
         let scanCompleted = false;  // guard against double-fire
 
@@ -1330,10 +1340,11 @@
             const tier = prop.lead_tier || 'NEUTRAL';
             const dev = prop.price_deviation_pct;
             const isHot = tier === 'HOT';
+            const isMedium = tier === 'MEDIUM';
             const isWarm = tier === 'WARM';
             const isSaved = savedListingIds.has(prop.listing_id);
 
-            const scoreColor = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : '#ff4466';
+            const scoreColor = score >= 100 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : '#ff4466';
 
             // Comp confidence (new numeric + label fields)
             const confLabel = prop.comp_confidence_label || 'MEDIUM';
@@ -1403,6 +1414,7 @@
                     </div>
                     <div class="prop-meta">
                         ${isHot ? '<span class="badge badge-hot">🔥 HOT</span>' : ''}
+                        ${isMedium && !isHot ? '<span class="badge badge-medium">🔶 MEDIUM</span>' : ''}
                         ${isWarm && !isHot ? '<span class="badge badge-warm">🌡 WARM</span>' : ''}
                         <span class="badge badge-score" style="color:${scoreColor}">${score.toFixed(1)}</span>
                         <button class="badge-save${isSaved ? ' saved' : ''}" onclick="event.stopPropagation(); toggleSave('${prop.listing_id}', this)">
@@ -1473,6 +1485,10 @@
                         <div class="detail-item">
                             <span class="label">Sqft</span>
                             <span class="value">${prop.sqft ? prop.sqft.toLocaleString() : 'N/A'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Acreage</span>
+                            <span class="value ${prop.acres ? 'white' : ''}">${prop.acres ? parseFloat(prop.acres).toFixed(2) + ' ac' : 'N/A'}</span>
                         </div>
                         <div class="detail-item">
                             <span class="label">Year Built</span>
@@ -1711,11 +1727,13 @@
         function updateStats() {
             const total = allProperties.length;
             const hot = allProperties.filter(p => p.lead_tier === 'HOT').length;
+            const medium = allProperties.filter(p => p.lead_tier === 'MEDIUM').length;
             const warm = allProperties.filter(p => p.lead_tier === 'WARM').length;
             const avg = total > 0 ? allProperties.reduce((s, p) => s + (p.score_total || 0), 0) / total : 0;
 
             document.getElementById('stat-total').textContent = total;
             document.getElementById('stat-hot').textContent = hot;
+            document.getElementById('stat-medium').textContent = medium;
             document.getElementById('stat-warm').textContent = warm;
             document.getElementById('stat-avg').textContent = avg.toFixed(1);
 

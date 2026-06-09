@@ -14,10 +14,9 @@ def score_price_per_acre_deviation(prop: dict) -> float:
     CRITICAL: If acres is NULL/0, skip this signal entirely.
     Do NOT use total price as proxy for price-per-acre — it produces meaningless deviations.
     
-    Uses the same percentile-band scoring as residential:
-    - 60%+ below median per-acre → 40 pts
-    - 5-10% below → 7 pts
-    - At market → 3 pts
+    Also checks that comps are actually comparable in size. Small lots naturally sell
+    for much higher $/acre than large lots — comparing against non-comparable sizes
+    produces misleading scores.
     """
     acres = prop.get("acres")
     list_price = prop.get("list_price")
@@ -77,7 +76,30 @@ def score_price_per_acre_deviation(prop: dict) -> float:
     # When acreage is estimated (not measured), reduce confidence by 30%
     if acres_estimated:
         score *= 0.70
-    
+
+    # ── Comp acreage comparability check ────────────────────────────────
+    # Small lots (0.1-0.3ac) sell for vastly more per acre than medium lots (0.5-2ac).
+    # If the comps used are significantly different in size, the per-acre
+    # comparison is misleading — the score should be reduced.
+    comp_listings = prop.get("comp_listings")
+    if comp_listings and isinstance(comp_listings, list) and len(comp_listings) > 0:
+        comp_acres_list = [
+            float(c["acres"]) for c in comp_listings
+            if c.get("acres") and float(c["acres"]) > 0
+        ]
+        if comp_acres_list:
+            avg_comp_acres = sum(comp_acres_list) / len(comp_acres_list)
+            target_acres = float(acres)
+            if avg_comp_acres > 0 and target_acres > 0:
+                size_ratio = avg_comp_acres / target_acres
+                # If comps are < 50% or > 200% of target size, they're not comparable
+                if size_ratio < 0.5 or size_ratio > 2.0:
+                    # Reduce score by 50% — the per-acre comparison is unreliable
+                    score *= 0.50
+
+    # Note: variance penalty is handled centrally by apply_variance_penalty()
+    # in score_land() — do NOT duplicate it here.
+
     return max(-10.0, min(40.0, score))
 
 
@@ -86,6 +108,10 @@ def score_land_assessor_gap(prop: dict) -> float:
     Score gap between list price and assessed value for land.
     Falls back to acreage-based heuristic if no assessed value.
     Max: 20 points.
+
+    NOTE: Land AVM (automated valuation) is notoriously unreliable. When
+    the estimated_value from HomeHarvest is used as assessed_value proxy
+    and shows a huge gap (> 50%), it's often a data error, not a real deal.
     """
     list_price = prop.get("list_price")
     assessed_value = prop.get("assessed_value")
@@ -93,6 +119,24 @@ def score_land_assessor_gap(prop: dict) -> float:
 
     if assessed_value and assessed_value > 0 and list_price and list_price > 0:
         gap_pct = ((assessed_value - list_price) / assessed_value) * 100
+        
+        # ── Estimated-value sanity check ────────────────────────────────
+        # Land AVM values are frequently wrong (e.g., a 0.98ac lot
+        # estimated at $492k when listed at $75k). If the gap is huge
+        # AND the list price is low for land, the estimated value is
+        # likely unreliable. Cap the score to avoid false HOT leads.
+        is_suspicious = (
+            gap_pct >= 50
+            and list_price < 100000
+            and acres is not None and float(acres) > 0
+            and prop.get("estimated_value") is not None
+            and float(prop.get("estimated_value", 0)) > list_price * 3
+        )
+        
+        if is_suspicious:
+            # Suspected bad AVM — cap at half the max
+            return 10.0
+        
         if gap_pct >= 50:
             return 20.0
         elif gap_pct >= 30:
@@ -284,7 +328,8 @@ def score_land(property_dict: dict) -> dict:
     # Recalculate total from possibly-updated scores (fallback may have added proxy)
     # Filter out _fb_ metadata keys (strings, booleans) — only numeric score keys
     total = sum(v for k, v in scores.items() if not k.startswith("_fb_"))
-    total = min(100.0, max(0.0, round(total, 1)))
+    # Remove 100 cap so scores can exceed 100 for HOT tier
+    total = max(0.0, round(total, 1))
     total, _ = cap_score_if_no_comps(total, scores)
 
     # Lead tier

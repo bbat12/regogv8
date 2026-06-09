@@ -81,6 +81,69 @@ def _median(values: list[float]) -> Optional[float]:
         return None
 
 
+
+def split_into_quadrants(properties: list[dict]) -> dict[str, list[dict]]:
+    """
+    Split a list of properties into 4 geographic quadrants (NW, NE, SW, SE).
+    Only splits if all properties have valid lat/lon and there are >20.
+    Returns dict mapping quadrant name to list of properties.
+    Used for regional comp clustering in large scans.
+    """
+    # Get bounding box from property coordinates
+    lats = [p.get("lat") for p in properties if p.get("lat") is not None]
+    lons = [p.get("lon") for p in properties if p.get("lon") is not None]
+
+    if len(lats) < 10 or len(lons) < 10:
+        # Not enough coordinates — return as single group
+        return {"all": properties}
+
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    mid_lat = (min_lat + max_lat) / 2
+    mid_lon = (min_lon + max_lon) / 2
+
+    quadrants = {"nw": [], "ne": [], "sw": [], "se": []}
+    for p in properties:
+        lat = p.get("lat")
+        lon = p.get("lon")
+        if lat is None or lon is None:
+            continue
+        if lat >= mid_lat:
+            if lon < mid_lon:
+                quadrants["nw"].append(p)
+            else:
+                quadrants["ne"].append(p)
+        else:
+            if lon < mid_lon:
+                quadrants["sw"].append(p)
+            else:
+                quadrants["se"].append(p)
+
+    # Remove empty quadrants
+    return {k: v for k, v in quadrants.items() if v}
+
+
+def get_quadrant_for_coords(lat: float, lon: float, all_listings: list[dict]) -> str:
+    """
+    Determine which quadrant a coordinate pair belongs to,
+    based on the bounding box of all listings.
+    Returns "all" if can't determine.
+    """
+    lats = [p.get("lat") for p in all_listings if p.get("lat") is not None]
+    lons = [p.get("lon") for p in all_listings if p.get("lon") is not None]
+
+    if len(lats) < 2 or len(lons) < 2:
+        return "all"
+
+    mid_lat = (min(lats) + max(lats)) / 2
+    mid_lon = (min(lons) + max(lons)) / 2
+
+    if lat >= mid_lat:
+        return "nw" if lon < mid_lon else "ne"
+    else:
+        return "sw" if lon < mid_lon else "se"
+
+
 # ─── Radius / Category Helpers ──────────────────────────────────────────────
 
 def get_comp_radii(prop: dict) -> list[float]:
@@ -353,9 +416,34 @@ def calculate_comps(
     # ── Step 1: Filter by property style ─────────────────────────────────
     style_filtered = _filter_by_style(sold_properties, target_style, stype)
 
-    # ── Step 2: 2D expansion search ──────────────────────────────────────
-    comps, radius_used, tier_used, lookback_used, staleness = \
-        find_comps_with_expansion(style_filtered, target_lat, target_lon, radii)
+    # ── Step 1b: Pre-filter by acreage for land (expands radius, not acres) ──
+    # For land, acreage is the #1 value driver — 5ac and 100ac parcels are
+    # not comparable. Search for similar-sized parcels first, expanding the
+    # search radius (not the acreage range) to find enough comps. Only fall
+    # back to all-acreage comps when radius+time expansion is exhausted.
+    used_acreage_pre_filter = False
+    if stype == "land" and target_acres and target_acres > 0:
+        acres_pct = COMP_DEFAULTS["similar_acres_pct"]
+        min_acres = target_acres * (1 - acres_pct)
+        max_acres = target_acres * (1 + acres_pct)
+        acreage_filtered_pool = [
+            c for c in style_filtered
+            if c.get("acres") and min_acres <= c["acres"] <= max_acres
+        ]
+        # Only try acreage-filtered expansion if pool is large enough to
+        # mathematically reach MIN_COMPS_REQUIRED (5) comps
+        if len(acreage_filtered_pool) >= MIN_COMPS_REQUIRED:
+            comps, radius_used, tier_used, lookback_used, staleness = \
+                find_comps_with_expansion(acreage_filtered_pool, target_lat, target_lon, radii)
+            if len(comps) >= MIN_COMPS_REQUIRED:
+                used_acreage_pre_filter = True
+
+    if not used_acreage_pre_filter:
+        # ── Step 2: 2D expansion search (acreage pre-filter failed or skipped) ──
+        # Falls back to the all-acreage style pool. This is degraded but better
+        # than nothing — the land scoring engine penalizes mismatched acreage.
+        comps, radius_used, tier_used, lookback_used, staleness = \
+            find_comps_with_expansion(style_filtered, target_lat, target_lon, radii)
 
     # ── Step 3: Filter by physical similarity ────────────────────────────
     if len(comps) >= MIN_COMPS_REQUIRED:
@@ -397,11 +485,16 @@ def calculate_comps(
             if len(acres_matched) >= MIN_COMPS_REQUIRED:
                 comps = acres_matched
 
-    # ── Step 4: Calculate medians ─────────────────────────────────────────
+    # ── Step 4: Filter out price-less comps and calculate medians ──────
+    # Strip comps that have NO price data at all — they shouldn't exist
+    # after normalization, but defend against edge cases.
+    comps = [
+        c for c in comps
+        if c.get("list_price") or c.get("last_sold_price")
+    ]
     prices = [
         c.get("list_price") or c.get("last_sold_price") or 0
         for c in comps
-        if (c.get("list_price") or c.get("last_sold_price"))
     ]
     price_per_sqft_list = [c.get("price_per_sqft") or 0 for c in comps if c.get("price_per_sqft")]
     price_per_acre_list = [c.get("price_per_acre") or 0 for c in comps if c.get("price_per_acre")]
@@ -454,6 +547,8 @@ def calculate_comps(
 
     # ── Step 6: Top comps for clickable display ──────────────────────────
     top_comps = []
+    # comps are already filtered to those with prices (Step 4), but sort
+    # by price proximity to the target for the most relevant comps first
     sorted_comps = sorted(
         comps,
         key=lambda c: abs((c.get("list_price") or c.get("last_sold_price") or 0) - target_price)
@@ -513,5 +608,6 @@ def calculate_comps(
         "comp_price_range": comp_price_range,
         "comp_price_stddev": comp_price_stddev,
         "comp_variance_high": comp_variance_high,
+        "comp_acreage_matched": used_acreage_pre_filter,
         "comp_listings": top_comps,
     }

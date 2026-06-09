@@ -329,6 +329,7 @@ def _run_scan_background(
     from scoring.residential_score import score_residential
     from scoring.land_score import score_land
     from scoring.commercial_score import score_commercial
+    from config import SOLD_COMPS_BASE, SOLD_COMPS_PER_LISTING, SOLD_COMPS_MAX, get_comp_pool_size
 
     conn = get_connection()
     processed = 0
@@ -341,30 +342,13 @@ def _run_scan_background(
             with _scan_status_lock:
                 _scan_status[session_id] = status_dict
 
-        # Update status
         status = _scan_status.get(session_id, {})
-        status["status"] = "fetching_comps"
-        _update_status(status)
 
-        # Fetch sold comps
-        sold_comps = fetch_sold_comps(
-            location=location,
-            scan_type=scan_type,
-            past_days=180,
-            limit=200,
-        )
-
-        status["status"] = "scanning"
-        status["comps_found"] = len(sold_comps)
-        _update_status(status)
-
-        # Fetch listings
-        # HomeHarvest accepts: single_family, multi_family, condos, townhomes, condo_townhome_rowhome_coop,
-        #                      duplex_triplex, farm, land, mobile, apartment
+        # Phase 1: Fetch listings first to gauge volume for dynamic comp pool sizing
         property_types = {
-            "residential": ["single_family", "mobile"],  # Single family + mobile homes
-            "land": ["land"],                              # Vacant land only
-            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],  # Everything else except mobile
+            "residential": ["single_family", "mobile"],
+            "land": ["land"],
+            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],
         }.get(scan_type)
 
         raw_listings = fetch_listings(
@@ -385,6 +369,27 @@ def _run_scan_background(
             return
 
         # Optionally fetch Zillow listings
+        # Calculate dynamic comp pool size based on actual listing volume
+        listing_count = len(raw_listings)
+        comp_limit = get_comp_pool_size(listing_count)
+
+        # Fetch sold comps with dynamic pool size
+        status["status"] = "fetching_comps"
+        status["listings_found"] = listing_count
+        status["comp_limit"] = comp_limit
+        _update_status(status)
+
+        sold_comps = fetch_sold_comps(
+            location=location,
+            scan_type=scan_type,
+            past_days=180,
+            limit=comp_limit,
+        )
+
+        status["status"] = "scanning"
+        status["comps_found"] = len(sold_comps)
+        _update_status(status)
+
         if use_zillow:
             try:
                 from scrapers.zillow_stealth import fetch_zillow_listings
@@ -505,6 +510,8 @@ def _run_scan_background(
 
                 # Save transient fields before DB upsert
                 cap_rate_data = prop.pop("cap_rate_data", None)
+                completeness_data = prop.pop("completeness", None)
+                comp_acreage_matched = prop.pop("comp_acreage_matched", None)
 
                 # Upsert to DB
                 upsert_property(conn, prop)
@@ -512,7 +519,10 @@ def _run_scan_background(
                 # Restore transient fields for SSE stream
                 if cap_rate_data:
                     prop["cap_rate_data"] = cap_rate_data
-                # completeness stays on prop for SSE stream (not in DB but useful for UI)
+                if completeness_data:
+                    prop["completeness"] = completeness_data
+                if comp_acreage_matched is not None:
+                    prop["comp_acreage_matched"] = comp_acreage_matched
 
                 # Push to SSE stream
                 progress_q.put(dict(prop))

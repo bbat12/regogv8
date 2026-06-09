@@ -174,34 +174,14 @@ def cmd_scan(args):
     session_id = create_scan_session(conn, args.scan_type, search_params)
 
     try:
-        # 0. Fetch sold comps first (used for price deviation scoring)
-        # Dynamic pool sizing based on expected listing volume (Part 4 fix)
-        # First fetch a small batch to gauge volume, then scale
-        render_info("Fetching sold comps for location...")
-        
-        # Probe: fetch a batch of listings to estimate volume
-        # We don't have the count yet, so use SOLD_COMPS_BASE as starting size
-        # then scale up if the location is a large metro area
-        comp_limit = SOLD_COMPS_BASE
-        
-        sold_comps = fetch_sold_comps(
-            location=args.location,
-            scan_type=args.scan_type,
-            past_days=180,
-            limit=comp_limit,
-        )
-        render_success(f"Loaded {len(sold_comps)} sold comps for comparison")
-
-        # 1. Fetch listings
+        # Phase 1: Fetch listings first to gauge volume for dynamic comp pool sizing
         render_info("Fetching listings from Realtor.com...")
 
         # Property type mapping for HomeHarvest API
-        # HomeHarvest accepts: single_family, multi_family, condos, townhomes, condo_townhome_rowhome_coop,
-        #                      duplex_triplex, farm, land, mobile, apartment
         property_types = {
-            "residential": ["single_family", "mobile"],  # Single family + mobile homes
-            "land": ["land"],                              # Vacant land only
-            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],  # Everything else except mobile
+            "residential": ["single_family", "mobile"],
+            "land": ["land"],
+            "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],
         }.get(args.scan_type)
 
         raw_listings = fetch_listings(
@@ -219,7 +199,52 @@ def cmd_scan(args):
 
         render_success(f"Found {len(raw_listings)} raw listings from Realtor.com")
 
-        # 1b. Optionally fetch additional listings from secondary sources
+        # Calculate dynamic comp pool size based on actual listing volume
+        from config import get_comp_pool_size
+        comp_limit = get_comp_pool_size(len(raw_listings))
+
+        # Phase 2: Fetch sold comps with correctly sized pool
+        render_info(f"Fetching {comp_limit} sold comps for comparison...")
+        sold_comps = fetch_sold_comps(
+            location=args.location,
+            scan_type=args.scan_type,
+            past_days=180,
+            limit=comp_limit,
+        )
+        render_success(f"Loaded {len(sold_comps)} sold comps for comparison")
+
+        # Regional clustering for large scans (>500 listings)
+        if len(raw_listings) > 500:
+            from enrichment.comp_engine import split_into_quadrants, get_quadrant_for_coords
+            quadrants = split_into_quadrants(raw_listings)
+            if len(quadrants) > 1:
+                render_info(f"Large scan: splitting into {len(quadrants)} geographic quadrants for comp matching")
+                # Group sold comps into the same quadrants
+                quadrant_comps: dict[str, list] = {}
+                for qname in quadrants:
+                    quadrant_comps[qname] = []
+                for comp in sold_comps:
+                    clat = comp.get("lat")
+                    clon = comp.get("lon")
+                    if clat is not None and clon is not None:
+                        qname = get_quadrant_for_coords(clat, clon, raw_listings)
+                        if qname in quadrant_comps:
+                            quadrant_comps[qname].append(comp)
+                    else:
+                        # Can't place — add to largest quadrant
+                        largest_q = max(quadrant_comps, key=lambda q: len(quadrant_comps[q]))
+                        quadrant_comps[largest_q].append(comp)
+                # Store for use in processing loop
+                quadrant_comps_pool = quadrant_comps
+                property_quadrant_map: dict = {}
+            else:
+                quadrant_comps_pool = {"all": sold_comps}
+                property_quadrant_map = {}
+        else:
+            quadrant_comps_pool = {"all": sold_comps}
+            property_quadrant_map = {}
+
+        # Phase 3: Fetch additional listings from secondary sources (if requested)
         secondary_sources = []
 
         if args.use_zillow:
@@ -332,8 +357,19 @@ def cmd_scan(args):
                 # Also enriches acreage for land parcels via acreage_enricher
                 prop = enrich_property(prop, skip_flood=args.skip_flood)
 
-                # Calculate comps against sold data for this property
-                comp_result = calculate_comps(prop, sold_comps, scan_type=args.scan_type)
+                # Calculate comps — use regional pool if available (for large scans)
+                # Determine which quadrant this property belongs to
+                qname = "all"
+                if quadrant_comps_pool and len(quadrant_comps_pool) > 1:
+                    clat = prop.get("lat")
+                    clon = prop.get("lon")
+                    if clat is not None and clon is not None:
+                        from enrichment.comp_engine import get_quadrant_for_coords
+                        qname = get_quadrant_for_coords(clat, clon, raw_listings)
+                        if qname not in quadrant_comps_pool:
+                            qname = "all"
+                comps_to_use = quadrant_comps_pool.get(qname, sold_comps)
+                comp_result = calculate_comps(prop, comps_to_use, scan_type=args.scan_type)
                 prop.update(comp_result)
 
                 # Score
@@ -359,6 +395,8 @@ def cmd_scan(args):
 
                 # Save transient fields before DB upsert, restore after
                 cap_rate_data = prop.pop("cap_rate_data", None)
+                completeness_data = prop.pop("completeness", None)
+                comp_acreage_matched = prop.pop("comp_acreage_matched", None)
 
                 # Upsert to DB
                 upsert_property(conn, prop)
@@ -366,7 +404,10 @@ def cmd_scan(args):
                 # Restore transient fields for display
                 if cap_rate_data:
                     prop["cap_rate_data"] = cap_rate_data
-                # completeness stays on prop for CLI display (not in DB but useful)
+                if completeness_data:
+                    prop["completeness"] = completeness_data
+                if comp_acreage_matched is not None:
+                    prop["comp_acreage_matched"] = comp_acreage_matched
 
                 if prop.get("lead_tier") == "HOT":
                     hot_count += 1
@@ -638,6 +679,8 @@ def cmd_schedule(args):
 
                 # Save transient fields before DB upsert, restore after
                 cap_rate_data = prop.pop("cap_rate_data", None)
+                completeness_data = prop.pop("completeness", None)
+                comp_acreage_matched = prop.pop("comp_acreage_matched", None)
 
                 from db.database import upsert_property
                 upsert_property(conn, prop)
@@ -645,7 +688,10 @@ def cmd_schedule(args):
                 # Restore transient fields for display
                 if cap_rate_data:
                     prop["cap_rate_data"] = cap_rate_data
-                # completeness stays on prop for CLI display (not in DB but useful)
+                if completeness_data:
+                    prop["completeness"] = completeness_data
+                if comp_acreage_matched is not None:
+                    prop["comp_acreage_matched"] = comp_acreage_matched
 
                 if prop.get("lead_tier") == "HOT":
                     hot += 1

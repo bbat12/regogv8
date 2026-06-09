@@ -12,47 +12,64 @@ from config import TIER_THRESHOLDS
 
 
 class TestAssignTier:
-    """Tests for lead tier assignment based on score thresholds."""
+    """Tests for lead tier assignment based on score thresholds (3-tier system)."""
 
     def test_hot_threshold_exact(self):
-        assert assign_tier(70) == "HOT"
-
-    def test_hot_above(self):
-        assert assign_tier(95) == "HOT"
+        """Score >= 100 is HOT."""
         assert assign_tier(100) == "HOT"
 
+    def test_hot_above(self):
+        """Scores above 100 (uncapped) are HOT."""
+        assert assign_tier(120) == "HOT"
+        assert assign_tier(200) == "HOT"
+
+    def test_medium_above_hot_threshold(self):
+        """Score 70 was previously HOT, now MEDIUM."""
+        assert assign_tier(70) == "MEDIUM"
+
+    def test_medium_threshold(self):
+        """Score >= 50 is MEDIUM."""
+        assert assign_tier(50) == "MEDIUM"
+
+    def test_medium_below_hot(self):
+        """Score 99 is still MEDIUM (below HOT threshold of 100)."""
+        assert assign_tier(99) == "MEDIUM"
+
+    def test_warm_below_medium(self):
+        """Score 30 is WARM (below MEDIUM threshold of 50)."""
+        assert assign_tier(30) == "WARM"
+
     def test_warm_threshold(self):
-        assert assign_tier(50) == "WARM"
+        """Score >= 0 is WARM."""
+        assert assign_tier(0) == "WARM"
 
-    def test_warm_below_hot(self):
-        assert assign_tier(69) == "WARM"
+    def test_warm_above_zero(self):
+        """Score 25 is WARM."""
+        assert assign_tier(25) == "WARM"
 
-    def test_neutral_threshold(self):
-        assert assign_tier(35) == "NEUTRAL"
-
-    def test_risky_threshold(self):
-        assert assign_tier(20) == "RISKY"
-
-    def test_skip_below_risky(self):
-        assert assign_tier(5) == "SKIP"
-        assert assign_tier(0) == "SKIP"
-
-    def test_negative_score_still_skip(self):
-        # Permit modifier can make total negative
+    def test_negative_score_skip(self):
+        """Negative scores fall through to SKIP."""
         assert assign_tier(-5) == "SKIP"
+        assert assign_tier(-1) == "SKIP"
 
-    def test_boundary_warm_hot(self):
-        assert assign_tier(69.9) == "WARM"
-        assert assign_tier(70.0) == "HOT"
+    def test_boundary_medium_hot(self):
+        """Score 99.9 is MEDIUM, 100.0 is HOT."""
+        assert assign_tier(99.9) == "MEDIUM"
+        assert assign_tier(100.0) == "HOT"
+
+    def test_boundary_warm_medium(self):
+        """Score 49.9 is WARM, 50.0 is MEDIUM."""
+        assert assign_tier(49.9) == "WARM"
+        assert assign_tier(50.0) == "MEDIUM"
 
     def test_all_tiers_returned_for_valid_scores(self):
         """Test that each tier can be hit with appropriate scores."""
         tiers_found = set()
-        # Score 20 maps to RISKY (not 10 — that's SKIP)
-        for score in [0, 20, 35, 50, 70, 100]:
+        for score in [0, 50, 100, 120]:
             tiers_found.add(assign_tier(score))
-        # All tiers should be represented
-        assert tiers_found == set(TIER_THRESHOLDS.keys())
+        # Should cover all defined tiers (HOT, MEDIUM, WARM)
+        for tier in TIER_THRESHOLDS:
+            assert tier in tiers_found, f"Tier {tier} not hit by any score"
 
 
 class TestParseFlags:

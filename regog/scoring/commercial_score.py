@@ -77,7 +77,8 @@ def score_commercial(property_dict: dict) -> dict:
     scores = apply_variance_penalty(property_dict, scores)
 
     # Total
-    total = sum(scores.values())
+    # Filter out _fb_ metadata keys (strings, booleans) — only numeric score keys
+    total = sum(v for k, v in scores.items() if not k.startswith("_fb_"))
     total, _ = cap_score_if_no_comps(total, scores)
 
     # Lead tier
