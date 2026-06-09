@@ -41,47 +41,83 @@ class TestBaselineScore:
 
 
 class TestPriceDeviation:
-    """Tests for the price deviation signal (40 pts max)."""
+    """Tests for the price deviation signal (40 pts max, percentile-band scoring).
+    
+    New scoring (Part 2 fix): graduated percentile bands instead of linear.
+    - 60%+ below median → 40 pts (exceptional)
+    - 50-60% below → 36 pts
+    - 40-50% below → 32 pts
+    - 30-40% below → 26 pts
+    - 20-30% below → 20 pts
+    - 10-20% below → 13 pts
+    - 5-10% below → 7 pts
+    - 0-5% below → 3 pts
+    - 0-10% above → 0 pts
+    - 10%+ above → -5 pts
+    """
 
-    def test_deep_discount_max_score(self):
-        # -50% deviation → should get max 40 pts
-        prop = {"price_deviation_pct": -50.0}
+    def test_exceptional_deal(self):
+        # -60% deviation → max 40 pts
+        prop = {"price_deviation_pct": -60.0}
         result = score_residential(prop)
         assert result["scores"]["price_deviation"] == 40.0
 
-    def test_slight_discount_mid_score(self):
-        # -20% deviation → should get 16 pts
+    def test_deep_discount_fifty_percent(self):
+        # -50% deviation → 36 pts
+        prop = {"price_deviation_pct": -50.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == 36.0
+
+    def test_strong_discount_forty_percent(self):
+        # -40% deviation → 32 pts
+        prop = {"price_deviation_pct": -40.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == 32.0
+
+    def test_moderate_discount(self):
+        # -20% deviation → 20 pts (was 16 in old linear scoring)
         prop = {"price_deviation_pct": -20.0}
         result = score_residential(prop)
-        assert result["scores"]["price_deviation"] == 16.0
+        assert result["scores"]["price_deviation"] == 20.0
 
-    def test_overpriced_gets_negative_penalty(self):
-        # +10% deviation → -2 pts (penalty, not capped at 0)
-        prop = {"price_deviation_pct": 10.0}
+    def test_slight_discount(self):
+        # -10% deviation → 13 pts
+        prop = {"price_deviation_pct": -10.0}
         result = score_residential(prop)
-        # -(10/50)*10 = -2.0
-        assert result["scores"]["price_deviation"] == -2.0
+        assert result["scores"]["price_deviation"] == 13.0
 
-    def test_heavily_overpriced_max_penalty(self):
-        # +50% deviation → max -10 pts
-        prop = {"price_deviation_pct": 50.0}
+    def test_small_discount(self):
+        # -5% deviation → 7 pts
+        prop = {"price_deviation_pct": -5.0}
         result = score_residential(prop)
-        assert result["scores"]["price_deviation"] == -10.0
+        assert result["scores"]["price_deviation"] == 7.0
 
-    def test_overpriced_capped_at_ten(self):
-        # +100% deviation → capped at -10 pts
-        prop = {"price_deviation_pct": 100.0}
+    def test_at_market(self):
+        # At market → 3 pts
+        prop = {"price_deviation_pct": -2.0}
         result = score_residential(prop)
-        assert result["scores"]["price_deviation"] == -10.0
+        assert result["scores"]["price_deviation"] == 3.0
 
-    def test_no_deviation(self):
-        # At market price → 0 pts
-        prop = {"price_deviation_pct": 0.0}
+    def test_slightly_overpriced_no_penalty(self):
+        # +5% above median → 0 pts (was -1 in old scoring)
+        prop = {"price_deviation_pct": 5.0}
         result = score_residential(prop)
         assert result["scores"]["price_deviation"] == 0.0
 
+    def test_heavily_overpriced_gets_negative(self):
+        # +50% above → -5 pts (was -10 in old scoring)
+        prop = {"price_deviation_pct": 50.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == -5.0
+
+    def test_no_deviation_at_market(self):
+        # Exactly at market → 3 pts (small discount band)
+        prop = {"price_deviation_pct": 0.0}
+        result = score_residential(prop)
+        assert result["scores"]["price_deviation"] == 3.0
+
     def test_missing_deviation_defaults_zero(self):
-        # None → treated as 0
+        # None → can't score, returns 0
         prop = {"price_deviation_pct": None}
         result = score_residential(prop)
         assert result["scores"]["price_deviation"] == 0.0
@@ -223,10 +259,10 @@ class TestFloodPenalty:
         result = score_residential(prop)
         assert result["scores"]["flood_penalty"] == 0  # Full penalty
 
-    def test_missing_zone_slight_penalty(self):
+    def test_missing_zone_no_penalty(self):
         prop = {"flood_zone": None}
         result = score_residential(prop)
-        assert result["scores"]["flood_penalty"] == 8  # Slight penalty for unknown
+        assert result["scores"]["flood_penalty"] == 0.0  # No data = no penalty (Part 1 fix)
 
 
 class TestPermitRisk:
@@ -285,16 +321,11 @@ class TestTierAssignment:
         # Let's just check it's not HOT
         assert result["tier"] != "HOT"
 
-    def test_distressed_override(self, distressed_residential):
+    def test_distressed_no_prefix(self, distressed_residential):
+        """DISTRESSED_ prefix removed per Part 3 fix. Tier is plain."""
         result = score_residential(distressed_residential)
-        assert result["tier"].startswith("DISTRESSED_"), \
-            f"Expected DISTRESSED_ prefix, got {result['tier']}"
-
-    def test_distressed_hot_preserved(self, distressed_residential):
-        result = score_residential(distressed_residential)
-        # Tier should still preserve the base tier as suffix
-        base_tier = result["tier"].replace("DISTRESSED_", "")
-        assert base_tier in TIER_THRESHOLDS, f"Invalid base tier: {base_tier}"
+        assert not result["tier"].startswith("DISTRESSED_"), \
+            f"DISTRESSED_ prefix should be removed, got {result['tier']}"
 
 
 class TestEdgeCases:
@@ -305,7 +336,7 @@ class TestEdgeCases:
         result = score_residential(missing_data_residential)
         assert isinstance(result["total"], (int, float))
         assert isinstance(result["tier"], str)
-        assert result["tier"] in TIER_THRESHOLDS or result["tier"].startswith("DISTRESSED_")
+        assert result["tier"] in TIER_THRESHOLDS
 
     def test_empty_dict(self):
         """Empty input dict should not crash — use defaults."""
@@ -316,13 +347,13 @@ class TestEdgeCases:
         assert result["scores"]["dom_signal"] == 15  # None → 0 → ≤30 bracket
         assert result["scores"]["assessor_gap"] == 5
         assert result["scores"]["condition"] == 15  # No key → defaults to 'standard' → 15
-        assert result["scores"]["flood_penalty"] == 8  # None → 8
+        assert result["scores"]["flood_penalty"] == 0.0  # None → 0 (Part 1 fix)
 
     def test_exact_boundary_scoring(self):
-        """Test a handful of known score calculations."""
+        """Test a handful of known score calculations with new PDev scoring."""
         prop = {
             "comp_count": 10,                 # Enough comps to avoid fallback cap
-            "price_deviation_pct": -50.0,    # 40 pts
+            "price_deviation_pct": -50.0,    # 36 pts (50-60% band)
             "days_on_market": 30,             # 15 pts
             "assessed_value": 200000,
             "list_price": 100000,              # gap = 50% → capped at 20 pts
@@ -331,13 +362,15 @@ class TestEdgeCases:
             "permit_flags": {"permit_risk": "low"},  # +3 pts
         }
         result = score_residential(prop)
-        assert result["scores"]["price_deviation"] == 40.0
+        # New PDev: -50% → 36 (50-60% band), not 40
+        assert result["scores"]["price_deviation"] == 36.0
         assert result["scores"]["dom_signal"] == 15
         assert result["scores"]["assessor_gap"] == 20.0
         assert result["scores"]["condition"] == 15
         assert result["scores"]["flood_penalty"] == 10
         assert result["scores"]["permit_risk"] == 3
-        assert result["total"] == pytest.approx(103.0, abs=0.1)  # Max theoretical
+        # New total: 36 + 15 + 20 + 15 + 10 + 3 = 99
+        assert result["total"] == pytest.approx(99.0, abs=0.1)
         assert result["tier"] == "HOT"
 
 

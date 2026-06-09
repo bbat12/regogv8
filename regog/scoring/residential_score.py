@@ -11,7 +11,7 @@ from config import (
     FLOOD_SCORES,
     PERMIT_SCORES,
 )
-from scoring.utils import assign_tier, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap, apply_variance_penalty
+from scoring.utils import assign_tier, apply_comp_fallback, cap_score_if_no_comps, apply_confidence_cap, apply_variance_penalty, score_price_deviation
 
 
 def score_residential(property_dict: dict) -> dict:
@@ -29,17 +29,50 @@ def score_residential(property_dict: dict) -> dict:
     """
     scores = {}
 
-    # 1. Price deviation (40 pts max, can go negative for overpriced)
-    # price_deviation_pct: -50% = 40pts, -20% = 16pts, +10% = -2pts penalty
-    # Positive deviation (overpriced) = PENALTY to enable SKIP tier
-    dev = property_dict.get("price_deviation_pct") or 0
-    dev = float(dev)
-    if dev <= 0:
-        # Below median = good deal
-        scores["price_deviation"] = max(0.0, min(40.0, (-dev / 50.0) * 40.0))
+    # 1. Price deviation (40 pts max, -10 to 40 range)
+    # Uses percentile-band scoring — how far below median matters
+    # Falls back to price_deviation_pct if comp_median_price not available
+    list_price = property_dict.get("list_price") or 0
+    comp_median = property_dict.get("comp_median_price")
+    conf_label = property_dict.get("comp_confidence_label", "HIGH")
+    
+    # Determine the deviation percentage from best available source
+    deviation_pct = None
+    if comp_median and list_price > 0:
+        deviation_pct = ((float(list_price) - float(comp_median)) / float(comp_median)) * 100
+    elif property_dict.get("price_deviation_pct") is not None:
+        deviation_pct = float(property_dict["price_deviation_pct"])
+    
+    if deviation_pct is not None:
+        # Percentile band scoring
+        if deviation_pct <= -60:
+            scores["price_deviation"] = 40.0
+        elif deviation_pct <= -50:
+            scores["price_deviation"] = 36.0
+        elif deviation_pct <= -40:
+            scores["price_deviation"] = 32.0
+        elif deviation_pct <= -30:
+            scores["price_deviation"] = 26.0
+        elif deviation_pct <= -20:
+            scores["price_deviation"] = 20.0
+        elif deviation_pct <= -10:
+            scores["price_deviation"] = 13.0
+        elif deviation_pct <= -5:
+            scores["price_deviation"] = 7.0
+        elif deviation_pct <= 0:
+            scores["price_deviation"] = 3.0
+        elif deviation_pct <= 10:
+            scores["price_deviation"] = 0.0
+        else:
+            scores["price_deviation"] = -5.0
+        
+        # Apply confidence penalty
+        if conf_label == "LOW":
+            scores["price_deviation"] *= 0.5
+        elif conf_label == "MEDIUM":
+            scores["price_deviation"] *= 0.75
     else:
-        # Above median = overpriced = negative score
-        scores["price_deviation"] = max(-10.0, -(dev / 50.0) * 10.0)
+        scores["price_deviation"] = 0.0
 
     # 2. Days on market (15 pts max, 0 for 180+ days)
     dom = property_dict.get("days_on_market") or 0
@@ -65,8 +98,12 @@ def score_residential(property_dict: dict) -> dict:
     scores["condition"] = CONDITION_SCORES.get(classification, 10)
 
     # 5. Flood penalty (0-10 pts — deduction for flood risk)
+    # Unknown zone = 0 penalty (Part 1 fix)
     flood_zone = property_dict.get("flood_zone")
-    scores["flood_penalty"] = FLOOD_SCORES.get(flood_zone, 8)
+    if not flood_zone or flood_zone == "UNKNOWN":
+        scores["flood_penalty"] = 0.0
+    else:
+        scores["flood_penalty"] = FLOOD_SCORES.get(flood_zone, 0)
 
     # 6. Permit risk modifier (-5 to +3 pts, from permit_flags JSON)
     permit_flags = property_dict.get("permit_flags") or {}
@@ -95,9 +132,10 @@ def score_residential(property_dict: dict) -> dict:
     # Lead tier
     tier = assign_tier(total)
 
-    # Override: distressed/fire_damage/teardown always gets DISTRESSED_ prefix
-    if classification in ("fire_damage", "teardown"):
-        tier = f"DISTRESSED_{tier}"
+    # NOTE: DISTRESSED_ prefix removed per Part 3 fix.
+    # Brain classification and tier are kept as SEPARATE fields.
+    # The tier column stores ONLY the scoring tier (HOT/WARM/NEUTRAL/RISKY/SKIP).
+    # The brain_classification column stores the classification separately.
 
     # Data confidence — HIGH for residential with comp confidence
     # (Will be overridden by comp_confidence from the engine)

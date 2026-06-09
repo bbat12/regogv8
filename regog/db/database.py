@@ -67,6 +67,9 @@ def init_db(db_path: Optional[str] = None) -> None:
     # ── Migrations for existing databases ──────────────────────────────
     _run_migrations(conn)
 
+    # Fix corrupted tier names (Part 3 fix)
+    _fix_corrupted_tiers(conn)
+
     conn.commit()
     conn.close()
     print(f"✓ Database initialized at {db_path or get_db_path()}")
@@ -112,6 +115,39 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
                 print(f"✓ Migration: added column '{col_name}' ({col_type})")
             except Exception as e:
                 print(f"⚠ Migration: could not add '{col_name}': {e}")
+
+
+def _fix_corrupted_tiers(conn: sqlite3.Connection) -> None:
+    """
+    Fix corrupted tier names that have DISTRESSED_ prefix concatenated.
+    
+    Prior to Part 3 fix, tier names like 'DISTRESSED_HOT', 'DISTRESSED_WARM',
+    'DISTRESSED_NEUTRAL', 'DISTRESSED_RISKY', 'DISTRESSED_SKIP' were stored
+    instead of plain 'HOT', 'WARM', etc.
+    
+    This strips the DISTRESSED_ prefix, keeping only the actual tier.
+    The brain_classification column already stores the classification separately.
+    """
+    import re
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, lead_tier FROM properties WHERE lead_tier "
+        "LIKE 'DISTRESSED_%'"
+    )
+    rows = cursor.fetchall()
+    count = 0
+    for row in rows:
+        match = re.search(r'(HOT|WARM|NEUTRAL|RISKY|SKIP)$', row['lead_tier'])
+        if match:
+            real_tier = match.group(1)
+            cursor.execute(
+                "UPDATE properties SET lead_tier = ? WHERE id = ?",
+                (real_tier, row['id']),
+            )
+            count += 1
+    if count > 0:
+        conn.commit()
+        print(f"✓ Migration: fixed {count} corrupted tier records (DISTRESSED_ prefix)")
 
 
 def create_scan_session(conn: sqlite3.Connection, scan_type: str, search_params: dict) -> str:

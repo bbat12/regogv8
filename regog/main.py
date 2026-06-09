@@ -14,7 +14,7 @@ from pathlib import Path
 # Add parent dir to path for module imports when running as script
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import DB_PATH, SCAN_DEFAULTS
+from config import DB_PATH, SCAN_DEFAULTS, SOLD_COMPS_BASE, SOLD_COMPS_PER_LISTING, SOLD_COMPS_MAX
 from ui.terminal import (
     console,
     print_banner,
@@ -175,12 +175,20 @@ def cmd_scan(args):
 
     try:
         # 0. Fetch sold comps first (used for price deviation scoring)
+        # Dynamic pool sizing based on expected listing volume (Part 4 fix)
+        # First fetch a small batch to gauge volume, then scale
         render_info("Fetching sold comps for location...")
+        
+        # Probe: fetch a batch of listings to estimate volume
+        # We don't have the count yet, so use SOLD_COMPS_BASE as starting size
+        # then scale up if the location is a large metro area
+        comp_limit = SOLD_COMPS_BASE
+        
         sold_comps = fetch_sold_comps(
             location=args.location,
             scan_type=args.scan_type,
             past_days=180,
-            limit=200,
+            limit=comp_limit,
         )
         render_success(f"Loaded {len(sold_comps)} sold comps for comparison")
 

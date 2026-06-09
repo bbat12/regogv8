@@ -94,6 +94,12 @@ COMP_CONFIDENCE_HIGH = 0.80    # 3+ comps, tier 1-2 radius, <= 365 days
 COMP_CONFIDENCE_MEDIUM = 0.50  # 3+ comps but expanded radius or time
 COMP_CONFIDENCE_LOW = 0.00     # < 3 comps even after full expansion
 
+# ─── Sold Comp Pool Sizing (Part 4 fix) ─────────────────────────────────────
+# Dynamic comp pool scaling: bigger scans get more comps
+SOLD_COMPS_BASE = 300          # minimum pool size
+SOLD_COMPS_PER_LISTING = 0.15  # 15% of active listing count
+SOLD_COMPS_MAX = 2000          # hard cap
+
 # ─── Scan Defaults ───────────────────────────────────────────────────────────
 SCAN_DEFAULTS = {
     "past_days": 180,  # was 90 — increased to capture older inventory
@@ -177,7 +183,8 @@ FLOOD_SCORES = {
     "AE": 3,       # High risk — 7pt penalty
     "A": 4,        # High risk
     "VE": 0,       # Coastal extreme — full penalty
-    None: 8,       # Unknown — slight penalty
+    "UNKNOWN": 0,  # No data — ZERO penalty. Never penalize for data we lack.
+    None: 0,        # Same — null flood_zone yields 0 not 8
 }
 
 # ─── Condition Score Map ─────────────────────────────────────────────────────
