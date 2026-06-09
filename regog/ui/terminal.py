@@ -108,9 +108,7 @@ def render_leads_table(properties: list[dict], title: str = "Leads") -> Table:
 
 def _tier_style(tier: str) -> tuple[Text, str]:
     """Get tier text and icon."""
-    # NOTE: DISTRESSED_ prefix no longer in tier (Part 3 fix).
-    # Brain classification is now stored separately.
-    elif tier == "HOT":
+    if tier == "HOT":
         return Text(f"🔥 {tier}", style="bold red"), "🔥"
     elif tier == "WARM":
         return Text(f"🌡 {tier}", style="bold yellow"), "🌡"

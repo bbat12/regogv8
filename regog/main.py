@@ -352,6 +352,9 @@ def cmd_scan(args):
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
+                # Remove transient fields that don't exist in DB schema
+                prop.pop("cap_rate_data", None)
+
                 # Upsert to DB
                 upsert_property(conn, prop)
 
@@ -615,6 +618,9 @@ def cmd_schedule(args):
                 prop["score_total"] = score_result["total"]
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
+
+                # Remove transient fields that don't exist in DB schema
+                prop.pop("cap_rate_data", None)
 
                 from db.database import upsert_property
                 upsert_property(conn, prop)
