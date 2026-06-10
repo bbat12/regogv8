@@ -33,6 +33,30 @@ _scan_status_lock: threading.Lock = threading.Lock()  # protects _scan_status
 _cancel_events: dict[str, threading.Event] = {}        # session_id -> Event, set when cancel requested
 _saved_properties: set[str] = set()            # set of listing_ids
 
+# ── Top 20 US Metro Areas (for nationwide lava scans) ──────────────────
+TOP_20_METROS: list[str] = [
+    "New York, NY",
+    "Los Angeles, CA",
+    "Chicago, IL",
+    "Dallas, TX",
+    "Houston, TX",
+    "Miami, FL",
+    "Atlanta, GA",
+    "Phoenix, AZ",
+    "Philadelphia, PA",
+    "San Antonio, TX",
+    "San Diego, CA",
+    "Orlando, FL",
+    "Seattle, WA",
+    "Denver, CO",
+    "Tampa, FL",
+    "Portland, OR",
+    "Charlotte, NC",
+    "Nashville, TN",
+    "Las Vegas, NV",
+    "Austin, TX",
+]
+
 # Ensure we capture all logging (including stderr for debugging thread errors)
 logging.basicConfig(level=logging.DEBUG, force=True,
                     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
@@ -202,6 +226,10 @@ def start_scan():
     price_max = data.get("price_max")
     skip_flood = data.get("skip_flood", True)
     use_zillow = data.get("use_zillow", False)
+    lava_mode = data.get("lava_mode", False)
+    lava_min_profit = data.get("lava_min_profit", 200)
+    lava_scope = data.get("lava_scope", "city")  # "city" or "nationwide"
+    lava_state = data.get("lava_state", "")
 
     if not location:
         return jsonify({"error": "Location is required"}), 400
@@ -215,6 +243,10 @@ def start_scan():
         "scan_type": scan_type,
         "price_min": price_min,
         "price_max": price_max,
+        "lava_mode": lava_mode,
+        "lava_min_profit": lava_min_profit,
+        "lava_scope": lava_scope,
+        "lava_state": lava_state,
     }
     session_id = create_scan_session(conn, scan_type, search_params)
     conn.close()
@@ -230,12 +262,17 @@ def start_scan():
         "total": 0,
         "hot_count": 0,
         "started_at": datetime.utcnow().isoformat(),
+        "lava_mode": lava_mode,
+        "lava_min_profit": lava_min_profit,
+        "lava_scope": lava_scope,
+        "lava_state": lava_state,
     }
 
     # Start scan in background thread
     thread = threading.Thread(
         target=_run_scan_background,
-        args=(session_id, location, scan_type, price_min, price_max, skip_flood, use_zillow, q),
+        args=(session_id, location, scan_type, price_min, price_max, skip_flood, use_zillow, q,
+              lava_mode, lava_min_profit, lava_scope, lava_state),
         daemon=True,
     )
     thread.start()
@@ -306,6 +343,225 @@ def get_property_detail(listing_id):
         conn.close()
 
 
+# ── Lava Search: Nationwide Multi-City Scan ────────────────────────────
+
+
+def _run_nationwide_lava_scan(
+    session_id: str,
+    scan_type: str,
+    price_min: int | None,
+    price_max: int | None,
+    skip_flood: bool,
+    use_zillow: bool,
+    progress_q: queue.Queue,
+    lava_min_profit: int = 300,
+    lava_state: str = "",
+):
+    """
+    Lava Search nationwide mode: cycle through the top 20 US metro areas
+    (optionally filtered to a single state) running the full scan pipeline
+    per city. Only lava-quality deals (profit_ratio >= threshold) are
+    streamed to the SSE queue.
+    """
+    from db.database import get_connection, complete_scan_session
+    from scrapers.homeharvest_scraper import fetch_listings, normalize_listing
+    from scrapers.redfin_scraper import fetch_sold_comps
+    from enrichment.brain import classify_property
+    from enrichment.comp_engine import calculate_comps
+    from enrichment.enricher import enrich_property
+    from enrichment.listing_filter import filter_listing
+    from scoring.residential_score import score_residential
+    from scoring.land_score import score_land
+    from scoring.commercial_score import score_commercial
+    from config import get_comp_pool_size
+
+    conn = get_connection()
+    total_processed = 0
+    total_hot = 0
+    total_filtered = 0
+    cities_completed = 0
+
+    def _update_status(status_dict: dict):
+        with _scan_status_lock:
+            _scan_status[session_id] = status_dict
+
+    # ── Filter metros by selected state (if any) ────────────────────
+    if lava_state:
+        _metros = [c for c in TOP_20_METROS if c.endswith(f", {lava_state}")]
+        if not _metros:
+            logger.warning(f"No metros found for state '{lava_state}', falling back to all")
+            _metros = TOP_20_METROS
+    else:
+        _metros = TOP_20_METROS
+
+    status = _scan_status.get(session_id, {})
+    status["status"] = "scanning"
+    status["lava_scope"] = "nationwide"
+    status["lava_state"] = lava_state if lava_state else "all"
+    status["total_cities"] = len(_metros)
+    status["cities_completed"] = 0
+    status["properties_found"] = 0
+    status["hot_leads"] = 0
+    _update_status(status)
+
+    for city_idx, city in enumerate(_metros):
+        if _cancel_events.get(session_id, threading.Event()).is_set():
+            logger.info(f"Nationwide lava scan cancelled after {city_idx} cities")
+            break
+
+        status["current_city"] = city
+        status["cities_completed"] = city_idx
+        status["status"] = f"Scanning {city} ({city_idx + 1}/{len(TOP_20_METROS)})"
+        _update_status(status)
+
+        logger.info(f"Nationwide lava: scanning {city} ({city_idx + 1}/{len(TOP_20_METROS)})")
+
+        try:
+            property_types = {
+                "residential": ["single_family", "mobile"],
+                "land": ["land"],
+                "commercial": ["multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm"],
+            }.get(scan_type)
+
+            raw_listings = fetch_listings(
+                location=city,
+                listing_type="for_sale",
+                past_days=90,
+                property_type=property_types,
+            )
+
+            if not raw_listings:
+                logger.info(f"Nationwide lava: no listings in {city}, skipping")
+                continue
+
+            listing_count = len(raw_listings)
+            comp_limit = get_comp_pool_size(listing_count)
+
+            sold_comps = fetch_sold_comps(
+                location=city,
+                scan_type=scan_type,
+                past_days=180,
+                limit=comp_limit,
+            )
+
+            if not sold_comps:
+                logger.info(f"Nationwide lava: no sold comps in {city}, skipping")
+                continue
+
+            # Process each property in this city
+            for raw in raw_listings:
+                try:
+                    if _cancel_events.get(session_id, threading.Event()).is_set():
+                        break
+
+                    if raw.get("source") == "zillow":
+                        prop = raw
+                        prop["scan_session_id"] = session_id
+                    else:
+                        prop = normalize_listing(raw, source="realtor", scan_session_id=session_id, scan_type=scan_type)
+
+                    list_price = prop.get("list_price") or 0
+                    if price_min and list_price < price_min:
+                        continue
+                    if price_max and list_price > price_max:
+                        continue
+
+                    brain = classify_property(
+                        address=prop.get("address", ""),
+                        scan_type=scan_type,
+                        list_price=prop.get("list_price"),
+                        sqft=prop.get("sqft"),
+                        year_built=prop.get("year_built"),
+                        days_on_market=prop.get("days_on_market"),
+                        description=prop.get("listing_description"),
+                    )
+                    prop["brain_classification"] = brain["classification"]
+                    prop["brain_red_flags"] = brain["red_flags"]
+                    prop["brain_green_flags"] = brain["green_flags"]
+                    prop["brain_seller_motivation"] = brain["seller_motivation"]
+
+                    filter_result = filter_listing(
+                        description=prop.get("listing_description"),
+                        list_price=prop.get("list_price"),
+                        sqft=prop.get("sqft"),
+                        style=prop.get("style"),
+                        brain_classification=prop.get("brain_classification"),
+                    )
+                    if filter_result and filter_result["action"] == "skip":
+                        total_filtered += 1
+                        continue
+                    if filter_result:
+                        prop["filter_reason"] = filter_result["reason"]
+                        prop["filter_type"] = filter_result["filter_type"]
+
+                    prop = enrich_property(prop, skip_flood=skip_flood)
+                    comp_result = calculate_comps(prop, sold_comps, scan_type=scan_type)
+                    prop.update(comp_result)
+
+                    if scan_type == "residential":
+                        score_result = score_residential(prop)
+                    elif scan_type == "land":
+                        score_result = score_land(prop)
+                    else:
+                        score_result = score_commercial(prop)
+
+                    prop["score_total"] = score_result["total"]
+                    prop["lead_tier"] = score_result["tier"]
+
+                    # ── Lava filter ──────────────────────────────────
+                    comp_median = prop.get("comp_median_price") or 0
+                    lava_list_price = prop.get("list_price") or 0
+                    if comp_median > 0 and lava_list_price > 0:
+                        profit_ratio = comp_median / lava_list_price
+                        min_ratio = lava_min_profit / 100.0
+                        prop["lava_profit_pct"] = round((profit_ratio - 1.0) * 100, 1)
+                        prop["lava_profit_ratio"] = round(profit_ratio, 2)
+                        if profit_ratio < min_ratio:
+                            continue
+                    else:
+                        continue  # No comp data — skip
+
+                    prop["lava_city"] = city
+                    prop["scan_type"] = scan_type
+
+                    from db.database import upsert_property
+                    upsert_property(conn, prop)
+                    progress_q.put(dict(prop))
+
+                    if prop["lead_tier"] == "HOT":
+                        total_hot += 1
+                    total_processed += 1
+
+                except Exception as e:
+                    logger.debug(f"Nationwide lava: skip listing: {e}")
+                    continue
+
+            cities_completed = city_idx + 1
+            status["cities_completed"] = cities_completed
+            status["properties_found"] = total_processed
+            status["hot_leads"] = total_hot
+            _update_status(status)
+
+        except Exception as e:
+            logger.warning(f"Nationwide lava: error scanning {city}: {e}")
+            continue
+
+    # Complete the session
+    complete_scan_session(conn, session_id, total_processed, total_hot)
+    conn.commit()
+
+    status["status"] = "completed"
+    status["properties_found"] = total_processed
+    status["hot_leads"] = total_hot
+    status["cities_completed"] = cities_completed
+    status["total_cities"] = len(TOP_20_METROS)
+    status["lava_total_cities"] = cities_completed
+    status["completed_at"] = datetime.utcnow().isoformat()
+    _update_status(status)
+    progress_q.put(None)
+    conn.close()
+
+
 # ─── Background Scan Runner ───────────────────────────────────────────────
 
 def _run_scan_background(
@@ -317,8 +573,20 @@ def _run_scan_background(
     skip_flood: bool,
     use_zillow: bool,
     progress_q: queue.Queue,
+    lava_mode: bool = False,
+    lava_min_profit: int = 300,
+    lava_scope: str = "city",
+    lava_state: str = "",
 ):
     """Run the scan pipeline in a background thread, pushing results to the queue."""
+    # ── Lava mode: nationwide = cycle through top 20 metros ─────────
+    if lava_mode and lava_scope == "nationwide":
+        _run_nationwide_lava_scan(session_id, scan_type, price_min, price_max,
+                                   skip_flood, use_zillow, progress_q,
+                                   lava_min_profit, lava_state)
+        return
+
+    # Lava mode state scope handled by location resolver mapping to anchor city
     from db.database import get_connection, complete_scan_session, upsert_property, _deserialize_row
     from scrapers.homeharvest_scraper import fetch_listings, normalize_listing
     from scrapers.redfin_scraper import fetch_sold_comps
@@ -535,9 +803,33 @@ def _run_scan_background(
                 prop["lead_tier"] = score_result["tier"]
                 prop["data_confidence"] = score_result.get("data_confidence", "HIGH")
 
+                # ── Lava Search filter ──────────────────────────────
+                lava_passed = True
+                if lava_mode:
+                    comp_median = prop.get("comp_median_price") or 0
+                    list_price = prop.get("list_price") or 0
+                    if comp_median > 0 and list_price > 0:
+                        profit_ratio = comp_median / list_price
+                        min_ratio = lava_min_profit / 100.0
+                        prop["lava_profit_pct"] = round((profit_ratio - 1.0) * 100, 1)
+                        prop["lava_profit_ratio"] = round(profit_ratio, 2)
+                        if profit_ratio < min_ratio:
+                            lava_passed = False
+                            logger.info(f"Lava filter: {prop.get('address','?')} "
+                                         f"ratio={profit_ratio:.2f}x < {min_ratio:.2f}x (min), skipping")
+                    else:
+                        # No comp data — can't evaluate lava, skip
+                        lava_passed = False
+                        logger.info(f"Lava filter: {prop.get('address','?')} no comp data, skipping")
+
                 # Add score completeness data
                 from scoring.utils import get_score_completeness
                 prop["completeness"] = get_score_completeness(prop)
+
+                # ── Lava filter check: skip if not lava-quality ──────
+                if not lava_passed:
+                    filtered_out += 1
+                    continue
 
                 # Save transient fields before DB upsert
                 cap_rate_data = prop.pop("cap_rate_data", None)

@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS properties (
     comp_lookback_used INTEGER,     -- days of sold history used (180/270/365/540)
     comp_confidence_label TEXT,     -- 'HIGH' | 'MEDIUM' | 'LOW'
     comp_staleness_penalty_applied INTEGER,  -- SQLite boolean: 0 or 1
+    lava_profit_pct REAL,                    -- Lava Search: profit percentage
+    lava_profit_ratio REAL,                  -- Lava Search: comp_median / list_price ratio
+    lava_city TEXT,                          -- Lava Search: which city the property was found in
     scan_session_id TEXT
 );
 
