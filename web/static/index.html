@@ -159,6 +159,108 @@
             background: var(--accent-dim);
         }
 
+        /* ─── LoopNet Connect Bar ──────────────────────────────────── */
+        .loopnet-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--bg-surface);
+            border: 1px solid rgba(0, 180, 255, 0.25);
+            border-radius: var(--radius);
+            padding: 0.6rem 0.9rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .loopnet-bar .ln-label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-family: 'Orbitron', monospace;
+            font-size: 0.78rem;
+            color: #5cc8ff;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .loopnet-bar .ln-input {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.4rem 0.6rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-family: 'Inter', sans-serif;
+            outline: none;
+            min-width: 180px;
+            transition: border-color 0.2s;
+        }
+
+        .loopnet-bar .ln-input:focus {
+            border-color: #5cc8ff;
+            box-shadow: 0 0 0 2px rgba(0, 180, 255, 0.15);
+        }
+
+        .loopnet-bar .ln-btn {
+            background: linear-gradient(135deg, #00aaff 0%, #0066cc 100%);
+            color: #fff;
+            border: none;
+            padding: 0.5rem 1.1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'Orbitron', monospace;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.03em;
+            box-shadow: 0 0 8px rgba(0, 170, 255, 0.25);
+            white-space: nowrap;
+        }
+
+        .loopnet-bar .ln-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 14px rgba(0, 170, 255, 0.4);
+        }
+
+        .loopnet-bar .ln-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .loopnet-bar .ln-status {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .loopnet-bar .ln-status.success { color: var(--green); }
+        .loopnet-bar .ln-status.error   { color: #ff4466; }
+        .loopnet-bar .ln-status.working { color: #5cc8ff; }
+
+        .loopnet-bar .ln-status .spinner {
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(0, 180, 255, 0.25);
+            border-top-color: #5cc8ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .loopnet-bar .ln-session-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #555;
+            flex-shrink: 0;
+        }
+        .loopnet-bar .ln-session-dot.connected { background: var(--green); box-shadow: 0 0 6px rgba(68,255,102,0.5); }
+        .loopnet-bar .ln-session-dot.expired   { background: var(--amber); }
+        .loopnet-bar .ln-session-dot.error     { background: #ff4466; }
+
         /* ─── Scan Bar ─────────────────────────────────────────────── */
         .scan-bar {
             background: var(--bg-surface);
@@ -184,15 +286,18 @@
         .mode-box.mode-disabled {
             opacity: 0.25;
             filter: grayscale(0.8);
-            pointer-events: none;
             user-select: none;
             border-color: rgba(255,255,255,0.04);
         }
 
-        /* Keep checkboxes and labels clickable even inside disabled boxes */
-        .mode-box.mode-disabled .mode-box-header {
-            pointer-events: auto;
+        /* Keep checkboxes and labels clickable even inside disabled boxes.
+           Do NOT use `pointer-events: none` on the parent — that prevents the
+           header from receiving clicks in some browsers. We just dim the body. */
+        .mode-box.mode-disabled .mode-box-body {
+            pointer-events: none;
+            opacity: 0.5;
         }
+        .mode-box.mode-disabled .mode-box-header,
         .mode-box.mode-disabled .mode-box-header input,
         .mode-box.mode-disabled .mode-box-header label {
             pointer-events: auto;
@@ -1051,6 +1156,20 @@
             </div>
         </header>
 
+        <!-- LoopNet Cookie Import Bar -->
+        <div class="loopnet-bar" id="loopnet-bar">
+            <span class="ln-label">🔗 LOOPNET</span>
+            <span class="ln-session-dot" id="ln-session-dot" title="Session status"></span>
+            <textarea class="ln-input ln-textarea" id="ln-cookie"
+                      placeholder="Paste LoopNet 'li' cookie value here"
+                      rows="2" spellcheck="false" autocomplete="off"></textarea>
+            <button class="ln-btn" id="ln-btn" onclick="saveLoopnetCookie()">Save Cookie</button>
+            <span class="ln-status" id="ln-status"></span>
+            <span class="ln-instructions">
+                Log into loopnet.com in your browser, open DevTools (F12) → Application → Cookies → loopnet.com, copy the value of the 'li' cookie, paste it here.
+            </span>
+        </div>
+
         <!-- Scan Bar -->
         <div class="scan-bar">
             <!-- Shared Category (top) -->
@@ -1061,14 +1180,12 @@
                     <option value="land">🌲 Land</option>
                     <option value="commercial">🏢 Commercial</option>
                 </select>
-            </div>
-
-            <!-- 📋 Regular Scan Box -->
+            <!-- 🎯 DEAL RADAR Scan Box (was: Regular Scan) -->
             <div class="mode-box" id="regular-box">
                 <div class="mode-box-header">
-                    <input type="checkbox" id="regular-mode" checked onchange="toggleMode()" 
+                    <input type="checkbox" id="regular-mode" checked onchange="toggleMode(this)"
                            style="accent-color:var(--accent);width:22px;height:22px;cursor:pointer;flex-shrink:0;">
-                    <label for="regular-mode" style="font-weight:700;font-size:1rem;cursor:pointer;user-select:none;">📋 Regular Scan</label>
+                    <label for="regular-mode" style="font-weight:700;font-size:1rem;cursor:pointer;user-select:none;">🎯 DEAL RADAR — Find Underpriced Properties</label>
                 </div>
                 <div class="mode-box-body" id="normal-mode-group">
                     <div class="scan-field">
@@ -1091,14 +1208,22 @@
                 </div>
             </div>
 
-            <!-- 🔥 Lava Scan Box -->
+            <!-- 🌋 LAVA SCAN Box -->
             <div class="mode-box" id="lava-box">
                 <div class="mode-box-header">
-                    <input type="checkbox" id="lava-mode" onchange="toggleMode()" 
+                    <input type="checkbox" id="lava-mode" onchange="toggleMode(this)"
                            style="accent-color:#ff8800;width:22px;height:22px;cursor:pointer;flex-shrink:0;">
-                    <label for="lava-mode" style="font-weight:700;font-size:1rem;cursor:pointer;user-select:none;color:var(--lava);">🔥 Lava Scan</label>
+                    <label for="lava-mode" style="font-weight:700;font-size:1rem;cursor:pointer;user-select:none;color:var(--lava);">🌋 LAVA SCAN — Top Metro HOT Deals</label>
                 </div>
                 <div class="mode-box-body" id="lava-mode-group">
+                    <div class="scan-field">
+                        <label>Category</label>
+                        <select id="lava-scan-type" style="min-width:200px;">
+                            <option value="residential">🏠 Single Family Homes</option>
+                            <option value="land">🌲 Land</option>
+                            <option value="commercial">🏢 Commercial</option>
+                        </select>
+                    </div>
                     <div class="scan-field">
                         <label>State (top 20 metros)</label>
                         <select id="lava-state" style="min-width:180px;">
@@ -1124,6 +1249,48 @@
                         <label>&nbsp;</label>
                         <button class="scan-btn" id="lava-scan-btn" onclick="startScan('lava')" style="background:linear-gradient(135deg,#ff8800 0%,#cc5500 100%);box-shadow:0 0 12px rgba(255,136,0,0.3);">🔥 LAVA SCAN</button>
                         <button class="scan-btn" id="stop-btn-lava" onclick="stopScan()" style="display:none;background:linear-gradient(135deg,#666 0%,#444 100%);box-shadow:none;">✕ STOP</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 🔨 FLIP RADAR Scan Box -->
+            <div class="mode-box" id="flip-box">
+                <div class="mode-box-header">
+                    <input type="checkbox" id="flip-mode" onchange="toggleMode(this)"
+                           style="accent-color:#cc44ff;width:22px;height:22px;cursor:pointer;flex-shrink:0;">
+                    <label for="flip-mode" style="font-weight:700;font-size:1rem;cursor:pointer;user-select:none;color:#cc44ff;">🔨 FLIP RADAR — Find Fix &amp; Flip Opportunities</label>
+                </div>
+                <div class="mode-box-body" id="flip-mode-group">
+                    <div class="scan-field">
+                        <label>City, State</label>
+                        <input type="text" id="flip-location" placeholder="e.g. Phoenix, AZ" value="Dallas, TX">
+                    </div>
+                    <div class="scan-field">
+                        <label>Min Price</label>
+                        <input type="number" id="flip-price-min" placeholder="0" value="0">
+                    </div>
+                    <div class="scan-field">
+                        <label>Max Price</label>
+                        <input type="number" id="flip-price-max" placeholder="1000000000000" value="1000000000000">
+                    </div>
+                    <div class="scan-field">
+                        <label>Property Type</label>
+                        <select id="flip-property-type" style="min-width:200px;">
+                            <option value="all">🏘️ All</option>
+                            <option value="single_family">🏠 Single Family</option>
+                            <option value="multi_family">🏢 Multi Family</option>
+                            <option value="condos">🏙️ Condos</option>
+                            <option value="townhomes">🏘️ Townhomes</option>
+                            <option value="commercial">🏪 Commercial</option>
+                            <option value="hotel">🏨 Hotel/Motel</option>
+                            <option value="rv_park">🚐 RV Park</option>
+                            <option value="mixed_use">🏬 Mixed Use</option>
+                        </select>
+                    </div>
+                    <div class="scan-field" style="align-self:flex-end;">
+                        <label>&nbsp;</label>
+                        <button class="scan-btn" id="flip-scan-btn" onclick="startScan('flip')" style="background:linear-gradient(135deg,#cc44ff 0%,#8822cc 100%);box-shadow:0 0 12px rgba(204,68,255,0.3);">🔨 FLIP SCAN</button>
+                        <button class="scan-btn" id="stop-btn-flip" onclick="stopScan()" style="display:none;background:linear-gradient(135deg,#666 0%,#444 100%);box-shadow:none;">✕ STOP</button>
                     </div>
                 </div>
             </div>
@@ -1160,6 +1327,19 @@
             <div class="stat-card stat-live" id="live-stat" style="display:none;">
                 <span class="stat-number" id="stat-live">0</span>
                 <span class="stat-label">Scanned</span>
+            </div>
+            <!-- FLIP RADAR-only stat cards -->
+            <div class="stat-card stat-flip" id="stat-flip-a" style="display:none;">
+                <span class="stat-number" id="stat-flip-a-num" style="color:#44ff66;">0</span>
+                <span class="stat-label">🎯 A Deals</span>
+            </div>
+            <div class="stat-card stat-flip" id="stat-flip-b" style="display:none;">
+                <span class="stat-number" id="stat-flip-b-num" style="color:#ffaa00;">0</span>
+                <span class="stat-label">🅱 B Deals</span>
+            </div>
+            <div class="stat-card stat-flip" id="stat-flip-roi" style="display:none;">
+                <span class="stat-number" id="stat-flip-roi-num" style="color:#cc88ff;">0%</span>
+                <span class="stat-label">📈 Avg ROI</span>
             </div>
         </div>
 
@@ -1204,6 +1384,7 @@
                 <button class="filter-btn" onclick="setSort('price-desc')" id="s-price-desc">$ ↓</button>
                 <button class="filter-btn" onclick="setSort('profit-asc')" id="s-profit-asc">% ↓</button>
                 <button class="filter-btn" onclick="setSort('profit-desc')" id="s-profit-desc">% ↑</button>
+                <button class="filter-btn" onclick="setSort('flip-profit-desc')" id="s-flip-profit-desc" style="display:none;">🔨 Profit ↓</button>
                 <button class="filter-btn active" onclick="setSort('score-desc')" id="s-score-desc">Score ↓</button>
             </div>
         </div>
@@ -1219,6 +1400,38 @@
     </div>
 
     <script>
+        // ─── LoopNet Cookie Import ───────────────────────────────────
+        // Reflects loopnet_session.json presence/age as a colored dot.
+        async function refreshLoopnetSessionDot() {
+            try {
+                const resp = await fetch('/api/loopnet/session/status');
+                const data = await resp.json();
+                const dot = document.getElementById('ln-session-dot');
+                if (!dot) return;
+                dot.classList.remove('connected', 'expired', 'error');
+                if (data.exists) {
+                    if (data.age_minutes != null && data.age_minutes > 60 * 12) {
+                        dot.classList.add('expired');
+                        dot.title = `Session exists but is ${Math.round(data.age_minutes/60)}h old — may need refresh`;
+                    } else {
+                        dot.classList.add('connected');
+                        dot.title = data.age_minutes != null
+                            ? `Connected · session ${Math.round(data.age_minutes)}m old`
+                            : 'Connected';
+                    }
+                } else {
+                    dot.title = 'Not connected';
+                }
+            } catch (err) {
+                // ignore
+            }
+        }
+
+        // Initial session-dot check on page load
+        refreshLoopnetSessionDot();
+    </script>
+
+    <script>
         // ─── State ──────────────────────────────────────────────────
         let currentSessionId = null;
         let eventSource = null;
@@ -1230,40 +1443,60 @@
         let scanCompleted = false;  // guard against double-fire
 
         // ─── Mode Toggle ────────────────────────────────────────────
-        function toggleMode() {
-            const regularChecked = document.getElementById('regular-mode').checked;
-            const lavaChecked = document.getElementById('lava-mode').checked;
+        // Three mutually exclusive modes: DEAL RADAR, LAVA SCAN, FLIP RADAR.
+        // The HTML checkboxes pass `this` so we know which one was just clicked.
+        function toggleMode(changedCheckbox) {
+            const regular = document.getElementById('regular-mode');
+            const lava    = document.getElementById('lava-mode');
+            const flip    = document.getElementById('flip-mode');
             const regularBox = document.getElementById('regular-box');
-            const lavaBox = document.getElementById('lava-box');
+            const lavaBox    = document.getElementById('lava-box');
+            const flipBox    = document.getElementById('flip-box');
 
-            // Auto-default to regular if both unchecked
-            if (!regularChecked && !lavaChecked) {
-                document.getElementById('regular-mode').checked = true;
-                regularBox.classList.remove('mode-disabled');
-                lavaBox.classList.add('mode-disabled');
-                return;
+            // If the just-changed checkbox is now CHECKED, uncheck the other two.
+            // (If the user unchecked the only active box, leave them all unchecked
+            //  so the auto-default below can pick DEAL RADAR.)
+            if (changedCheckbox && changedCheckbox.checked) {
+                [regular, lava, flip].forEach(cb => {
+                    if (cb !== changedCheckbox) cb.checked = false;
+                });
             }
 
-            // Mutual exclusion — dim the OTHER box
-            if (lavaChecked) {
-                document.getElementById('regular-mode').checked = false;
-                regularBox.classList.add('mode-disabled');
-                lavaBox.classList.remove('mode-disabled');
-            } else {
-                document.getElementById('lava-mode').checked = false;
-                regularBox.classList.remove('mode-disabled');
-                lavaBox.classList.add('mode-disabled');
+            // Auto-default to DEAL RADAR if all three are unchecked
+            if (!regular.checked && !lava.checked && !flip.checked) {
+                regular.checked = true;
             }
+
+            // Update dim states
+            regularBox.classList.toggle('mode-disabled', !regular.checked);
+            lavaBox.classList.toggle('mode-disabled',    !lava.checked);
+            flipBox.classList.toggle('mode-disabled',    !flip.checked);
         }
 
         // ─── Scan ───────────────────────────────────────────────────
         async function startScan(mode) {
             const isLava = mode === 'lava';
-            const location = document.getElementById('location').value.trim();
-            const scanType = document.getElementById('scan-type').value;
-            const priceMin = parseInt(document.getElementById('price-min').value) || null;
-            const priceMax = parseInt(document.getElementById('price-max').value) || null;
-            const lavaState = document.getElementById('lava-state').value;
+            const isFlip = mode === 'flip';
+            const isRegular = mode === 'regular';
+
+            // Read fields per mode
+            let location, priceMin, priceMax, scanType, lavaState, flipPropertyType;
+            if (isFlip) {
+                location = document.getElementById('flip-location').value.trim();
+                priceMin = parseInt(document.getElementById('flip-price-min').value) || null;
+                priceMax = parseInt(document.getElementById('flip-price-max').value) || null;
+                scanType = 'flip';
+                flipPropertyType = document.getElementById('flip-property-type').value;
+            } else {
+                location = document.getElementById('location').value.trim();
+                priceMin = parseInt(document.getElementById('price-min').value) || null;
+                priceMax = parseInt(document.getElementById('price-max').value) || null;
+                // Lava uses its own category dropdown; regular uses the shared one
+                scanType = isLava
+                    ? document.getElementById('lava-scan-type').value
+                    : document.getElementById('scan-type').value;
+                lavaState = isLava ? document.getElementById('lava-state').value : '';
+            }
 
             if (!location && !isLava) {
                 showError('Please enter a location');
@@ -1275,12 +1508,16 @@
             allProperties = [];
             currentFilter = 'all';
             scanActive = true;
+            // FLIP mode sorts by projected_profit desc by default
+            sortMode = isFlip ? 'flip-profit-desc' : 'score-desc';
 
             // Show/hide per-mode buttons
-            document.getElementById('scan-btn').style.display = isLava ? 'inline-flex' : 'none';
-            document.getElementById('stop-btn-regular').style.display = isLava ? 'none' : 'inline-flex';
-            document.getElementById('lava-scan-btn').style.display = isLava ? 'none' : 'inline-flex';
-            document.getElementById('stop-btn-lava').style.display = isLava ? 'inline-flex' : 'none';
+            document.getElementById('scan-btn').style.display = isRegular ? 'inline-flex' : 'none';
+            document.getElementById('stop-btn-regular').style.display = isRegular && scanActive ? 'inline-flex' : 'none';
+            document.getElementById('lava-scan-btn').style.display = isLava ? 'inline-flex' : 'none';
+            document.getElementById('stop-btn-lava').style.display = isLava && scanActive ? 'inline-flex' : 'none';
+            document.getElementById('flip-scan-btn').style.display = isFlip ? 'inline-flex' : 'none';
+            document.getElementById('stop-btn-flip').style.display = isFlip && scanActive ? 'inline-flex' : 'none';
 
             document.getElementById('scan-status').style.display = 'flex';
             document.getElementById('status-text').textContent = 'Starting scan...';
@@ -1293,7 +1530,20 @@
             document.getElementById('results').innerHTML = '';
             document.getElementById('stats-bar').style.display = 'grid';
             document.getElementById('filters').style.display = 'flex';
-            document.getElementById('view-title').textContent = isLava ? `🔥 Lava Search: ${lavaState ? 'Top 20 Metros in ' + document.getElementById('lava-state').options[document.getElementById('lava-state').selectedIndex].text : 'All US'}...` : `Scanning ${location}...`;
+
+            // Title
+            if (isLava) {
+                const lavaScanTypeEl = document.getElementById('lava-scan-type');
+                const stateText = lavaState ? document.getElementById('lava-state').options[document.getElementById('lava-state').selectedIndex].text : 'All US';
+                const catText = lavaScanTypeEl.options[lavaScanTypeEl.selectedIndex].text;
+                document.getElementById('view-title').textContent = `🌋 Lava Search: ${catText} · ${stateText}...`;
+            } else if (isFlip) {
+                const fptEl = document.getElementById('flip-property-type');
+                const ptypeText = fptEl.options[fptEl.selectedIndex].text;
+                document.getElementById('view-title').textContent = `🔨 Flip Scan: ${ptypeText} in ${location}...`;
+            } else {
+                document.getElementById('view-title').textContent = `Scanning ${location}...`;
+            }
             document.getElementById('stat-live').textContent = '0';
             document.getElementById('data-notice').style.display = 'block';
 
@@ -1304,8 +1554,13 @@
             document.getElementById('stat-avg').textContent = '0';
             document.getElementById('live-stat').style.display = 'block';
 
+            // Update sort-button active state for FLIP mode
+            document.querySelectorAll('.filters button[id^="s-"]').forEach(b => b.classList.remove('active'));
+            const sortBtnId = isFlip ? 's-flip-profit-desc' : 's-score-desc';
+            const sortBtn = document.getElementById(sortBtnId);
+            if (sortBtn) sortBtn.classList.add('active');
+
             try {
-                // Start scan
                 const resp = await fetch('/api/scan', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1319,7 +1574,8 @@
                         lava_mode: isLava,
                         lava_min_profit: 200,
                         lava_scope: "nationwide",
-                        lava_state: lavaState,
+                        lava_state: lavaState || '',
+                        flip_property_type: flipPropertyType || 'all',
                     }),
                 });
 
@@ -1333,24 +1589,16 @@
                 currentSessionId = data.session_id;
                 document.getElementById('status-text').textContent = 'Scanning...';
 
-                // Open SSE stream
                 eventSource = new EventSource(`/api/scan/${currentSessionId}/stream`);
-
                 eventSource.addEventListener('property', (e) => {
                     const prop = JSON.parse(e.data);
                     addProperty(prop);
                 });
-
                 eventSource.addEventListener('complete', (e) => {
                     const status = JSON.parse(e.data);
                     onScanComplete(status);
                 });
-
-                eventSource.addEventListener('error', () => {
-                    // SSE will auto-reconnect; if scan is done, close it
-                });
-
-                // Also poll status as fallback
+                eventSource.addEventListener('error', () => {});
                 pollStatus();
 
             } catch (err) {
@@ -1399,12 +1647,14 @@
             scanActive = false;
             scanCompleted = true;
 
-            // Update UI — reset both button pairs
+            // Update UI — reset all button pairs
             document.getElementById('scan-status').style.display = 'none';
             document.getElementById('stop-btn-regular').style.display = 'none';
             document.getElementById('stop-btn-lava').style.display = 'none';
+            document.getElementById('stop-btn-flip').style.display = 'none';
             document.getElementById('scan-btn').style.display = 'inline-flex';
             document.getElementById('lava-scan-btn').style.display = 'inline-flex';
+            document.getElementById('flip-scan-btn').style.display = 'inline-flex';
             resetScanButton();
             document.getElementById('live-stat').style.display = 'none';
             document.getElementById('view-title').textContent =
@@ -1431,8 +1681,10 @@
             document.getElementById('scan-status').style.display = 'none';
             document.getElementById('stop-btn-regular').style.display = 'none';
             document.getElementById('stop-btn-lava').style.display = 'none';
+            document.getElementById('stop-btn-flip').style.display = 'none';
             document.getElementById('scan-btn').style.display = 'inline-flex';
             document.getElementById('lava-scan-btn').style.display = 'inline-flex';
+            document.getElementById('flip-scan-btn').style.display = 'inline-flex';
             resetScanButton();
             document.getElementById('live-stat').style.display = 'none';
 
@@ -1521,9 +1773,21 @@
             const lavaPct = prop.lava_profit_pct != null ? prop.lava_profit_pct.toFixed(0) : null;
             const lavaRatio = prop.lava_profit_ratio || null;
             const lavaCity = prop.lava_city || null;
+            const isFlip = prop.scan_type === 'flip' || prop.flip_deal_grade != null;
+            const flipProfit = prop.flip_projected_profit;
+            const flipRoi = prop.flip_roi_pct;
+            const flipGrade = prop.flip_deal_grade;
+            const flipDistress = prop.flip_distress_score;
+            const flipRehabTier = prop.flip_rehab_tier || '';
+            const flipArv = prop.flip_arv;
+            const flipRepair = prop.flip_repair_cost;
+            const flipMaxOffer = prop.flip_max_offer;
+            const flipKeywords = prop.flip_keywords || [];
+            const flipTierBadge = tier === 'LAVA' ? '🌋 LAVA' : (tier === 'HOT' ? '🔥 HOT' : (tier === 'WARM' ? '🌡 WARM' : (tier === 'SKIP' ? '✕ SKIP' : 'NEUTRAL')));
 
             const card = document.createElement('div');
-            card.className = `prop-card${isHot || isLava ? ' hot' : ''}`;
+            card.className = `prop-card${(isHot || isLava || (isFlip && (flipGrade === 'A' || flipGrade === 'B'))) ? ' hot' : ''}`;
+            card.dataset.flipProfit = flipProfit != null ? flipProfit : '';
             card.id = `prop-${prop.listing_id}`;
             card.dataset.tier = tier;
             card.dataset.score = score;
@@ -1563,6 +1827,18 @@
                         <span class="label">🔥 Profit</span>
                         <span class="value" style="color:#ff8800;font-weight:700;">${lavaPct}%</span>
                     </span>` : ''}
+                    ${isFlip ? `<span class="item">
+                        <span class="label">💰 Profit</span>
+                        <span class="value ${flipProfit != null && flipProfit > 0 ? 'green' : ''}">$${flipProfit != null ? flipProfit.toLocaleString() : 'N/A'}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">📈 ROI</span>
+                        <span class="value ${flipRoi != null && flipRoi >= 20 ? 'green' : (flipRoi != null && flipRoi >= 10 ? 'amber' : 'white')}">${flipRoi != null ? flipRoi.toFixed(0) + '%' : 'N/A'}</span>
+                    </span>
+                    <span class="item">
+                        <span class="label">🎯 Grade</span>
+                        <span class="value white" style="font-weight:700;">${flipGrade || '?'}</span>
+                    </span>` : ''}
                     <span class="item">
                         <span class="label">vs Median</span>
                         <span class="value ${dev !== null && dev < 0 ? 'green' : ''}">
@@ -1587,7 +1863,8 @@
                     </span>
                     ${prop.comp_count ? `<span class="item"><span class="label">Comps</span><span class="value white">${prop.comp_count}</span></span>` : ''}
                 </div>
-                ${flagsHtml ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flagsHtml}</div>` : ''}    <div class="card-score-bar" onclick="toggleExpand('${prop.listing_id}')">
+                ${flagsHtml ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flagsHtml}</div>` : ''}
+                ${isFlip && flipKeywords.length > 0 ? `<div class="flags" onclick="toggleExpand('${prop.listing_id}')">${flipKeywords.slice(0, 6).map(k => `<span class="flag" style="background:rgba(204,68,255,0.1);color:#cc88ff;border:1px solid rgba(204,68,255,0.15);">🏚 ${k}</span>`).join('')}</div>` : ''}    <div class="card-score-bar" onclick="toggleExpand('${prop.listing_id}')">
                         <div class="card-score-bar-fill" style="width:${Math.min(score, 100)}%;background:${scoreColor};"></div>
                     </div>
 
@@ -1606,6 +1883,40 @@
                             · Comp Median: <strong>$${(prop.comp_median_price || 0).toLocaleString()}</strong>
                             · Ratio: <strong>${lavaRatio}x</strong>
                             ${lavaCity ? `· City: ${lavaCity}` : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+                    ${isFlip ? `
+                    <div style="margin-bottom:0.75rem;padding:0.6rem 0.75rem;background:rgba(204,68,255,0.08);border:1px solid rgba(204,68,255,0.25);border-radius:var(--radius-sm);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="font-size:0.8rem;color:#cc88ff;font-weight:700;">🔨 FLIP ANALYSIS</span>
+                            <span style="font-size:1.1rem;font-family:'Orbitron',monospace;color:#cc88ff;font-weight:900;">GRADE ${flipGrade || '?'}</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:0.5rem;font-size:0.75rem;">
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">ARV</div>
+                                <div style="color:#fff;font-weight:600;">$${flipArv != null ? flipArv.toLocaleString() : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">REPAIRS</div>
+                                <div style="color:#ff8866;font-weight:600;">$${flipRepair != null ? flipRepair.toLocaleString() : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">PROFIT</div>
+                                <div style="color:${flipProfit != null && flipProfit > 0 ? '#44ff66' : '#ff4466'};font-weight:700;">$${flipProfit != null ? flipProfit.toLocaleString() : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">ROI</div>
+                                <div style="color:${flipRoi != null && flipRoi >= 20 ? '#44ff66' : (flipRoi != null && flipRoi >= 10 ? '#ffaa00' : '#fff')};font-weight:600;">${flipRoi != null ? flipRoi.toFixed(1) + '%' : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">MAX OFFER (70%)</div>
+                                <div style="color:#fff;font-weight:600;">$${flipMaxOffer != null ? flipMaxOffer.toLocaleString() : 'N/A'}</div>
+                            </div>
+                            <div>
+                                <div style="color:#aaa;font-size:0.6rem;">DISTRESS</div>
+                                <div style="color:#cc88ff;font-weight:600;">${flipDistress != null ? flipDistress + ' (' + flipRehabTier + ')' : 'N/A'}</div>
+                            </div>
                         </div>
                     </div>
                     ` : ''}
@@ -1747,27 +2058,32 @@
             // Insert in current sort order
             const price = prop.list_price || 0;
             const profit = prop.price_deviation_pct;
+            const fp = flipProfit != null ? flipProfit : null;
             let inserted = false;
             for (const child of resultsEl.children) {
                 const childPrice = parseFloat(child.dataset.price || 0);
                 const childScore = parseFloat(child.dataset.score || 0);
                 const childProfit = child.dataset.profit !== '' ? parseFloat(child.dataset.profit) : null;
+                const childFlipProfit = child.dataset.flipProfit !== '' && child.dataset.flipProfit !== undefined ? parseFloat(child.dataset.flipProfit) : null;
                 let cmp = false;
                 if (sortMode === 'price-asc') {
                     cmp = price < childPrice;
                 } else if (sortMode === 'price-desc') {
                     cmp = price > childPrice;
                 } else if (sortMode === 'profit-asc') {
-                    // Biggest discount (most negative) first
                     const p1 = profit != null ? profit : 999;
                     const p2 = childProfit != null ? childProfit : 999;
                     cmp = p1 < p2;
                 } else if (sortMode === 'profit-desc') {
-                    // Most positive first
                     const p1 = profit != null ? profit : -999;
                     const p2 = childProfit != null ? childProfit : -999;
                     cmp = p1 > p2;
-                } else { // score-desc
+                } else if (sortMode === 'flip-profit-desc') {
+                    // FLIP RADAR default: highest projected profit first
+                    const p1 = fp != null ? fp : -Infinity;
+                    const p2 = childFlipProfit != null ? childFlipProfit : -Infinity;
+                    cmp = p1 > p2;
+                } else {
                     cmp = score > childScore;
                 }
                 if (cmp) {
@@ -1839,6 +2155,8 @@
                 const bScore = parseFloat(b.dataset.score || 0);
                 const aProfit = a.dataset.profit !== '' ? parseFloat(a.dataset.profit) : null;
                 const bProfit = b.dataset.profit !== '' ? parseFloat(b.dataset.profit) : null;
+                const aFlip = a.dataset.flipProfit !== '' && a.dataset.flipProfit !== undefined ? parseFloat(a.dataset.flipProfit) : null;
+                const bFlip = b.dataset.flipProfit !== '' && b.dataset.flipProfit !== undefined ? parseFloat(b.dataset.flipProfit) : null;
                 if (sortMode === 'price-asc') return aPrice - bPrice;
                 if (sortMode === 'price-desc') return bPrice - aPrice;
                 if (sortMode === 'profit-asc') {
@@ -1851,7 +2169,12 @@
                     const pb = bProfit != null ? bProfit : -999;
                     return pb - pa;
                 }
-                return bScore - aScore; // score-desc
+                if (sortMode === 'flip-profit-desc') {
+                    const pa = aFlip != null ? aFlip : -Infinity;
+                    const pb = bFlip != null ? bFlip : -Infinity;
+                    return pb - pa;
+                }
+                return bScore - aScore;
             });
 
             cards.forEach(c => resultsEl.appendChild(c));
@@ -1874,23 +2197,41 @@
         }
 
         // ─── Stats ──────────────────────────────────────────────────
-        function updateStats() {
-            const total = allProperties.length;
-            const hot = allProperties.filter(p => p.lead_tier === 'HOT').length;
-            const medium = allProperties.filter(p => p.lead_tier === 'MEDIUM').length;
-            const warm = allProperties.filter(p => p.lead_tier === 'WARM').length;
-            const avg = total > 0 ? allProperties.reduce((s, p) => s + (p.score_total || 0), 0) / total : 0;
+function updateStats() {
+    const total = allProperties.length;
+    const hot = allProperties.filter(p => p.lead_tier === 'HOT').length;
+    const medium = allProperties.filter(p => p.lead_tier === 'MEDIUM').length;
+    const warm = allProperties.filter(p => p.lead_tier === 'WARM').length;
+    const avg = total > 0 ? allProperties.reduce((s, p) => s + (p.score_total || 0), 0) / total : 0;
 
-            document.getElementById('stat-total').textContent = total;
-            document.getElementById('stat-hot').textContent = hot;
-            document.getElementById('stat-medium').textContent = medium;
-            document.getElementById('stat-warm').textContent = warm;
-            document.getElementById('stat-avg').textContent = avg.toFixed(1);
+    document.getElementById('stat-total').textContent = total;
+    document.getElementById('stat-hot').textContent = hot;
+    document.getElementById('stat-medium').textContent = medium;
+    document.getElementById('stat-warm').textContent = warm;
+    document.getElementById('stat-avg').textContent = avg.toFixed(1);
 
-            if (scanActive) {
-                document.getElementById('stat-live').textContent = total;
-            }
-        }
+    // FLIP RADAR-specific stats: A/B deals + avg ROI
+    const flipProps = allProperties.filter(p => p.scan_type === 'flip' || p.flip_deal_grade != null);
+    const isFlipMode = flipProps.length > 0 || (document.getElementById('flip-mode') && document.getElementById('flip-mode').checked);
+    const aDeals = flipProps.filter(p => p.flip_deal_grade === 'A').length;
+    const bDeals = flipProps.filter(p => p.flip_deal_grade === 'B').length;
+    const flipRois = flipProps.map(p => p.flip_roi_pct).filter(r => r != null);
+    const avgRoi = flipRois.length ? flipRois.reduce((s, r) => s + r, 0) / flipRois.length : 0;
+    document.getElementById('stat-flip-a-num').textContent = aDeals;
+    document.getElementById('stat-flip-b-num').textContent = bDeals;
+    document.getElementById('stat-flip-roi-num').textContent = avgRoi.toFixed(0) + '%';
+    ['stat-flip-a', 'stat-flip-b', 'stat-flip-roi'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isFlipMode ? '' : 'none';
+    });
+    // Show the 🔨 Profit ↓ sort button in flip mode
+    const flipSortBtn = document.getElementById('s-flip-profit-desc');
+    if (flipSortBtn) flipSortBtn.style.display = isFlipMode ? '' : 'none';
+
+    if (scanActive) {
+        document.getElementById('stat-live').textContent = total;
+    }
+}
 
         // ─── Panels ─────────────────────────────────────────────────
         function togglePanel(panel) {
@@ -2186,6 +2527,7 @@
         function resetScanButton() {
             document.getElementById('scan-btn').disabled = false;
             document.getElementById('lava-scan-btn').disabled = false;
+            document.getElementById('flip-scan-btn').disabled = false;
             document.getElementById('scan-status').style.display = 'none';
             scanCompleted = false;
         }

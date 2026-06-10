@@ -230,6 +230,7 @@ def start_scan():
     lava_min_profit = data.get("lava_min_profit", 200)
     lava_scope = data.get("lava_scope", "city")  # "city" or "nationwide"
     lava_state = data.get("lava_state", "")
+    flip_property_type = data.get("flip_property_type", "all")  # FLIP RADAR property-type filter
 
     if not location:
         return jsonify({"error": "Location is required"}), 400
@@ -247,6 +248,7 @@ def start_scan():
         "lava_min_profit": lava_min_profit,
         "lava_scope": lava_scope,
         "lava_state": lava_state,
+        "flip_property_type": flip_property_type,
     }
     session_id = create_scan_session(conn, scan_type, search_params)
     conn.close()
@@ -272,7 +274,7 @@ def start_scan():
     thread = threading.Thread(
         target=_run_scan_background,
         args=(session_id, location, scan_type, price_min, price_max, skip_flood, use_zillow, q,
-              lava_mode, lava_min_profit, lava_scope, lava_state),
+              lava_mode, lava_min_profit, lava_scope, lava_state, flip_property_type),
         daemon=True,
     )
     thread.start()
@@ -343,6 +345,86 @@ def get_property_detail(listing_id):
         conn.close()
 
 
+# ── LoopNet credentials login ───────────────────────────────────────
+
+# ── LoopNet cookie import ─────────────────────────────────────
+
+LOOPNET_SESSION_PATH = Path(__file__).resolve().parent.parent / "loopnet_session.json"
+
+
+def _build_loopnet_storage_state(cookie_value: str) -> dict:
+    """
+    Build a minimal Playwright-compatible storage_state dict from a single
+    LoopNet 'li' session cookie. This is what phase_scrape() in
+    loopnet_auth.py expects when it calls context.add_cookies().
+    """
+    # 10 years from now — effectively a permanent session. LoopNet itself
+    # will invalidate the cookie server-side when it expires, so the on-disk
+    # timestamp is just a "freshness" signal.
+    far_future = int(time.time()) + 60 * 60 * 24 * 365 * 10
+    return {
+        "cookies": [
+            {
+                "name": "li",
+                "value": cookie_value,
+                "domain": ".loopnet.com",
+                "path": "/",
+                "expires": far_future,
+                "httpOnly": False,
+                "secure": False,
+                "sameSite": "Lax",
+            }
+        ],
+        "origins": [],
+    }
+
+
+@app.route("/api/loopnet/save-cookie", methods=["POST"])
+def loopnet_save_cookie():
+    """
+    Accept a single LoopNet 'li' session cookie from the frontend and save it
+    as a Playwright-compatible storage_state file at LOOPNET_SESSION_PATH.
+    """
+    data = request.get_json() or {}
+    cookie = (data.get("cookie") or "").strip()
+
+    if not cookie:
+        return jsonify({"error": "Cookie value is required"}), 400
+    if len(cookie) < 4 or len(cookie) > 4096:
+        return jsonify({"error": "Cookie length looks wrong (expected 4-4096 chars)"}), 400
+
+    try:
+        state = _build_loopnet_storage_state(cookie)
+        with open(LOOPNET_SESSION_PATH, "w") as f:
+            json.dump(state, f, indent=2)
+        logger.info(f"LoopNet session saved to {LOOPNET_SESSION_PATH} ({len(cookie)} chars)")
+    except Exception as e:
+        logger.exception("Failed to save LoopNet session")
+        return jsonify({"error": f"Failed to save session: {e}"}), 500
+
+    return jsonify({
+        "status": "saved",
+        "path": str(LOOPNET_SESSION_PATH),
+        "cookie_length": len(cookie),
+    })
+
+
+@app.route("/api/loopnet/session/status", methods=["GET"])
+def loopnet_session_status():
+    """Return whether a saved LoopNet session file exists."""
+    exists = LOOPNET_SESSION_PATH.exists()
+    age_min = None
+    if exists:
+        try:
+            mtime = LOOPNET_SESSION_PATH.stat().st_mtime
+            age_min = round((time.time() - mtime) / 60, 1)
+        except Exception:
+            pass
+    return jsonify({
+        "exists": exists,
+        "path": str(LOOPNET_SESSION_PATH),
+        "age_minutes": age_min,
+    })
 # ── Lava Search: Nationwide Multi-City Scan ────────────────────────────
 
 
@@ -577,6 +659,7 @@ def _run_scan_background(
     lava_min_profit: int = 300,
     lava_scope: str = "city",
     lava_state: str = "",
+    flip_property_type: str = "all",
 ):
     """Run the scan pipeline in a background thread, pushing results to the queue."""
     # ── Lava mode: nationwide = cycle through top 20 metros ─────────
@@ -584,6 +667,12 @@ def _run_scan_background(
         _run_nationwide_lava_scan(session_id, scan_type, price_min, price_max,
                                    skip_flood, use_zillow, progress_q,
                                    lava_min_profit, lava_state)
+        return
+
+    # ── Flip Radar mode: distressed + ARV/rehab/profit analysis ─────
+    if scan_type == "flip":
+        _run_flip_scan(session_id, location, price_min, price_max,
+                        skip_flood, progress_q, flip_property_type)
         return
 
     # Lava mode state scope handled by location resolver mapping to anchor city
@@ -912,6 +1001,446 @@ def _run_scan_background(
 
 
 # ─── Serialization helpers ────────────────────────────────────────────────
+
+# ─── FLIP RADAR pipeline ───────────────────────────────────────────────
+
+# Distress keyword tiers (matched case-insensitively in description / remarks / status)
+DISTRESS_HIGH = [
+    "as-is", "as is", "needs work", "needs repair", "fixer", "fixer-upper",
+    "investor special", "cash only", "handyman", "handyman special",
+    "tear down", "teardown", "major repairs", "uninhabitable",
+    "fire damage", "flood damage", "foundation",
+]
+DISTRESS_MEDIUM = [
+    "estate sale", "motivated seller", "price reduced", "below market",
+    "opportunity", "potential", "tlc", "updating needed", "cosmetic",
+    "original condition", "original owner",
+]
+DISTRESS_LOW = [
+    "sold as is", "older home", "bring offers", "priced to sell", "make offer",
+]
+
+
+def score_distress(text: str) -> tuple[int, list[str]]:
+    """
+    Score a free-form text blob for distress signals.
+    Returns (score, matched_keywords). 3 high / 2 medium / 1 low per match.
+    """
+    if not text:
+        return 0, []
+    haystack = text.lower()
+    score = 0
+    matched: list[str] = []
+    for kw in DISTRESS_HIGH:
+        if kw in haystack:
+            score += 3
+            matched.append(kw)
+    for kw in DISTRESS_MEDIUM:
+        if kw in haystack:
+            score += 2
+            matched.append(kw)
+    for kw in DISTRESS_LOW:
+        if kw in haystack:
+            score += 1
+            matched.append(kw)
+    return score, matched
+
+
+def estimate_repair_cost(distress_score: int, sqft: int | None) -> tuple[int, str]:
+    """Estimate repair cost from distress score + sqft. Returns (cost, tier)."""
+    if distress_score >= 8:
+        cost_per_sqft, tier, flat_fallback = 45, "heavy", 85000
+    elif distress_score >= 5:
+        cost_per_sqft, tier, flat_fallback = 28, "medium", 45000
+    else:
+        cost_per_sqft, tier, flat_fallback = 15, "light", 20000
+    if sqft and sqft > 0:
+        return int(cost_per_sqft * sqft), tier
+    return flat_fallback, tier
+
+
+def compute_flip_metrics(prop: dict) -> dict:
+    """
+    Populate flip_arv / repair_cost / max_offer / profit / roi / deal_grade on `prop`.
+    Mutates and returns the dict.
+    """
+    arv = prop.get("comp_median_price") or 0
+    list_price = prop.get("list_price") or 0
+    sqft = prop.get("sqft")
+    distress_score = prop.get("flip_distress_score") or 0
+
+    repair_cost, rehab_tier = estimate_repair_cost(distress_score, sqft)
+    max_offer = int(arv * 0.70) - repair_cost
+    projected_profit = arv - list_price - repair_cost
+    total_investment = list_price + repair_cost
+    roi_pct = (projected_profit / total_investment) * 100.0 if total_investment > 0 else 0.0
+
+    if projected_profit >= 50000 and roi_pct >= 20:
+        deal_grade = "A"
+    elif projected_profit >= 25000 and roi_pct >= 15:
+        deal_grade = "B"
+    elif projected_profit >= 10000 and roi_pct >= 10:
+        deal_grade = "C"
+    else:
+        deal_grade = "D"
+
+    prop["flip_arv"] = int(arv) if arv else None
+    prop["flip_repair_cost"] = repair_cost
+    prop["flip_max_offer"] = max(0, int(max_offer)) if arv else None
+    prop["flip_projected_profit"] = int(projected_profit) if arv else None
+    prop["flip_roi_pct"] = round(roi_pct, 1) if arv else None
+    prop["flip_deal_grade"] = deal_grade if arv else None
+    prop["flip_rehab_tier"] = rehab_tier
+    return prop
+
+
+def _flip_tier(prop: dict) -> str:
+    """Map flip metrics → REGOG lead_tier."""
+    profit = prop.get("flip_projected_profit") or 0
+    roi = prop.get("flip_roi_pct") or 0
+    grade = prop.get("flip_deal_grade") or "D"
+    if profit <= 0:
+        return "SKIP"
+    if grade == "A" and roi >= 40:
+        return "LAVA"
+    if grade == "A" or (grade == "B" and roi >= 25):
+        return "HOT"
+    if grade in ("B", "C"):
+        return "WARM"
+    return "NEUTRAL"
+
+
+def _flip_property_types(selection: str) -> list[dict]:
+    """
+    Map the FLIP RADAR property-type dropdown to a list of listing sources.
+    Each source is a dict with a 'name' key plus source-specific params.
+
+    Each selection now maps to its OWN category — no more shared
+    commercial-type fallback for hotel / rv_park / mixed_use.
+
+    Source types
+    ------------
+    {"name": "realtor", "types": [...]}   HomeHarvest (Realtor.com)
+    {"name": "zillow",  "category": "..."} Zillow stealth (for hotel/rv_park
+                                          since LoopNet is Cloudflare-blocked)
+    {"name": "loopnet", "category": "..."} LoopNet scraper (mixed_use)
+    """
+    if selection == "single_family":
+        return [{"name": "realtor", "types": ["single_family", "mobile"]}]
+    if selection == "multi_family":
+        # Multi-family ONLY — no condos, no commercial
+        return [{"name": "realtor", "types": ["multi_family", "duplex_triplex"]}]
+    if selection == "condos":
+        # Condos have their own category so they don't leak into other selections
+        return [{"name": "realtor", "types": ["condos", "apartment"]}]
+    if selection == "commercial":
+        # Commercial ONLY — no condos, no multi-family
+        return [{"name": "realtor", "types": ["townhomes", "farm"]}]
+    if selection == "townhomes":
+        return [{"name": "realtor", "types": ["townhomes"]}]
+    if selection == "hotel":
+        # Routed to Zillow (LoopNet is Cloudflare-blocked). Zillow absorbs
+        # hotel listings into broader categories (multi-family, land, etc.)
+        return [{"name": "zillow", "category": "hotel"}]
+    if selection == "rv_park":
+        # Routed to Zillow (LoopNet is Cloudflare-blocked). Zillow carries
+        # RV/mobile/manufactured listings — distress scoring filters them.
+        return [{"name": "zillow", "category": "rv_park"}]
+    if selection == "mixed_use":
+        # LoopNet-only category
+        return [{"name": "loopnet", "category": "mixed-use-properties"}]
+    # "all" — merge from all three sources
+    return [
+        {"name": "realtor", "types": [
+            "single_family", "mobile",
+            "multi_family", "apartment", "condos", "townhomes", "duplex_triplex", "farm",
+        ]},
+        {"name": "zillow"},  # hotel + rv_park
+        {"name": "loopnet", "category": "mixed-use-properties"},
+    ]
+
+
+def _run_flip_scan(
+    session_id: str,
+    location: str,
+    price_min: int | None,
+    price_max: int | None,
+    skip_flood: bool,
+    progress_q: queue.Queue,
+    flip_property_type: str = "all",
+):
+    """
+    FLIP RADAR: fetch listings, distress-score them, compute ARV/rehab/profit/ROI,
+    and stream results to the SSE queue. Tier is mapped to REGOG's lead_tier
+    (LAVA / HOT / WARM / NEUTRAL / SKIP) so the existing card UI works.
+    """
+    from db.database import get_connection, complete_scan_session, upsert_property
+    from scrapers.homeharvest_scraper import fetch_listings, normalize_listing
+    from scrapers.redfin_scraper import fetch_sold_comps
+    from enrichment.brain import classify_property
+    from enrichment.comp_engine import calculate_comps
+    from enrichment.enricher import enrich_property
+    from enrichment.listing_filter import filter_listing
+    from config import get_comp_pool_size
+
+    # Resolve loose location terms
+    from utils.location_resolver import resolve_with_details as _resolve_loc
+    loc_info = _resolve_loc(location)
+    search_location = loc_info["resolved"]
+    if loc_info["changed"]:
+        logger.info(f"Flip location resolved: '{loc_info['original']}' -> '{loc_info['resolved']}'")
+
+    conn = get_connection()
+    processed = 0
+    hot_count = 0
+    lava_count = 0
+    a_count = 0
+    b_count = 0
+    filtered_out = 0
+    total_roi = 0.0
+    roi_count = 0
+
+    def _update_status(status_dict: dict) -> None:
+        with _scan_status_lock:
+            _scan_status[session_id] = status_dict
+
+    status = _scan_status.get(session_id, {})
+
+    # Persist resolved location
+    if loc_info["changed"]:
+        try:
+            import json as _json
+            existing = conn.execute(
+                "SELECT search_params FROM scan_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            if existing:
+                params = _json.loads(existing["search_params"] or "{}")
+                params["search_location"] = loc_info["resolved"]
+                params["location_resolution_method"] = loc_info["method"]
+                conn.execute(
+                    "UPDATE scan_sessions SET search_params = ? WHERE id = ?",
+                    (_json.dumps(params), session_id),
+                )
+                conn.commit()
+        except Exception as _exc:
+            logger.warning(f"Failed to persist resolved location: {_exc}")
+
+    sources = _flip_property_types(flip_property_type)
+
+    # Phase 1: fetch listings
+    status["status"] = "fetching_listings"
+    status["flip_property_type"] = flip_property_type
+    status["flip_sources"] = [s["name"] for s in sources]
+    _update_status(status)
+
+    raw_listings: list[dict] = []
+    for src in sources:
+        try:
+            if src["name"] == "realtor":
+                realtor_listings = fetch_listings(
+                    location=search_location,
+                    listing_type="for_sale",
+                    past_days=90,
+                    property_type=src.get("types"),
+                )
+                raw_listings.extend(realtor_listings)
+                logger.info(f"Flip scan: Realtor returned {len(realtor_listings)} listings")
+            elif src["name"] == "zillow":
+                from scrapers.zillow_stealth import fetch_zillow_listings
+                zillow_listings = fetch_zillow_listings(
+                    location=search_location,
+                    listing_type="for_sale",
+                    max_pages=2,
+                )
+                raw_listings.extend(zillow_listings)
+                logger.info(f"Flip scan: Zillow returned {len(zillow_listings)} listings "
+                            f"(category={src.get('category', 'all')})")
+            elif src["name"] == "loopnet":
+                from scrapers.loopnet_scraper import fetch_loopnet_listings
+                loopnet_listings = fetch_loopnet_listings(
+                    location=search_location,
+                    category=src.get("category", "all"),
+                    max_pages=2,
+                )
+                raw_listings.extend(loopnet_listings)
+                logger.info(f"Flip scan: LoopNet returned {len(loopnet_listings)} listings "
+                            f"(category={src.get('category', 'all')})")
+        except Exception as e:
+            logger.warning(f"Flip scan: {src['name']} fetch failed: {e}")
+
+    if not raw_listings:
+        complete_scan_session(conn, session_id, 0, 0)
+        status["status"] = "completed"
+        status["properties_found"] = 0
+        status["hot_leads"] = 0
+        _update_status(status)
+        progress_q.put(None)
+        conn.close()
+        return
+
+    listing_count = len(raw_listings)
+    comp_limit = get_comp_pool_size(listing_count)
+
+    # Phase 2: fetch sold comps
+    status["status"] = "fetching_comps"
+    status["listings_found"] = listing_count
+    status["comp_limit"] = comp_limit
+    _update_status(status)
+
+    sold_comps = fetch_sold_comps(
+        location=search_location,
+        scan_type="residential",
+        past_days=180,
+        limit=comp_limit,
+    )
+
+    status["status"] = "scanning"
+    status["comps_found"] = len(sold_comps)
+    status["total"] = listing_count
+    _update_status(status)
+
+    # Phase 3: process each listing
+    for i, raw in enumerate(raw_listings):
+        if _cancel_events.get(session_id, threading.Event()).is_set():
+            logger.info(f"Flip scan {session_id} cancelled by user after {processed} properties")
+            break
+
+        try:
+            src = raw.get("source")
+            if src == "zillow":
+                prop = raw
+                prop["scan_session_id"] = session_id
+            elif src == "loopnet":
+                from scrapers.loopnet_scraper import normalize_listing as normalize_loopnet
+                prop = normalize_loopnet(raw, scan_session_id=session_id, scan_type="residential")
+            else:
+                prop = normalize_listing(raw, source="realtor", scan_session_id=session_id, scan_type="residential")
+
+            # Price filter
+            list_price = prop.get("list_price") or 0
+            if price_min and list_price < price_min:
+                continue
+            if price_max and list_price > price_max:
+                continue
+
+            # Distress scoring
+            desc_text = " ".join(
+                str(prop.get(k) or "") for k in ("listing_description", "remarks", "listing_status")
+            )
+            distress_score, matched_keywords = score_distress(desc_text)
+            if distress_score < 2:
+                filtered_out += 1
+                continue
+
+            prop["flip_distress_score"] = distress_score
+            prop["flip_keywords"] = matched_keywords
+
+            # Brain classification
+            brain = classify_property(
+                address=prop.get("address", ""),
+                scan_type="residential",
+                list_price=prop.get("list_price"),
+                sqft=prop.get("sqft"),
+                year_built=prop.get("year_built"),
+                days_on_market=prop.get("days_on_market"),
+                description=prop.get("listing_description"),
+            )
+            prop["brain_classification"] = brain["classification"]
+            prop["brain_red_flags"] = brain["red_flags"]
+            prop["brain_green_flags"] = brain["green_flags"]
+            prop["brain_seller_motivation"] = brain["seller_motivation"]
+
+            # Standard listing filter (auctions, bait prices, etc.)
+            filter_result = filter_listing(
+                description=prop.get("listing_description"),
+                list_price=prop.get("list_price"),
+                sqft=prop.get("sqft"),
+                style=prop.get("style"),
+                brain_classification=prop.get("brain_classification"),
+            )
+            if filter_result:
+                if filter_result["action"] == "skip":
+                    filtered_out += 1
+                    continue
+                prop["filter_reason"] = filter_result["reason"]
+                prop["filter_type"] = filter_result["filter_type"]
+
+            # Enrich (assessor data; skip flood to keep flip scans fast)
+            prop = enrich_property(prop, skip_flood=skip_flood)
+
+            # Comps
+            comp_result = calculate_comps(prop, sold_comps, scan_type="residential")
+            prop.update(comp_result)
+
+            # ARV / repair / max-offer / profit / ROI / grade
+            prop = compute_flip_metrics(prop)
+
+            # Tier + meta
+            prop["lead_tier"] = _flip_tier(prop)
+            prop["scan_type"] = "flip"
+            prop["data_confidence"] = "HIGH" if (prop.get("comp_count") or 0) >= 5 else (
+                "MEDIUM" if (prop.get("comp_count") or 0) >= 2 else "LOW"
+            )
+
+            # Persist
+            upsert_property(conn, prop)
+
+            # Track stats
+            if prop["lead_tier"] == "LAVA":
+                lava_count += 1
+            if prop["lead_tier"] in ("LAVA", "HOT"):
+                hot_count += 1
+            grade = prop.get("flip_deal_grade")
+            if grade == "A":
+                a_count += 1
+            elif grade == "B":
+                b_count += 1
+            roi = prop.get("flip_roi_pct") or 0
+            if roi:
+                total_roi += roi
+                roi_count += 1
+            processed += 1
+
+            # Stream to SSE
+            progress_q.put(dict(prop))
+
+            if i % 10 == 0:
+                status["progress"] = i
+                status["hot_count"] = hot_count
+                _update_status(status)
+
+        except Exception as e:
+            import traceback
+            logger.error(f"Flip scan: error processing listing {i}: {e}")
+            logger.error(traceback.format_exc())
+            continue
+
+    # Complete session
+    complete_scan_session(conn, session_id, processed, hot_count)
+    conn.commit()
+
+    avg_roi = (total_roi / roi_count) if roi_count else 0
+    status["status"] = "completed"
+    status["progress"] = processed
+    status["total"] = listing_count
+    status["hot_count"] = hot_count
+    status["lava_count"] = lava_count
+    status["properties_found"] = processed
+    status["hot_leads"] = hot_count
+    status["a_deals"] = a_count
+    status["b_deals"] = b_count
+    status["avg_roi"] = round(avg_roi, 1)
+    status["filtered_out"] = filtered_out
+    status["completed_at"] = datetime.utcnow().isoformat()
+    _update_status(status)
+
+    progress_q.put(None)
+    _cancel_events.pop(session_id, None)
+    conn.close()
+
+
+# ─── Serialization helpers ──────────────────────────────────────────────
+
 
 def _serialize_prop(prop: dict) -> dict:
     """Serialize a property dict for JSON response."""
