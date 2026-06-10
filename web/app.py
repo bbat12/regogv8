@@ -331,7 +331,34 @@ def _run_scan_background(
     from scoring.commercial_score import score_commercial
     from config import SOLD_COMPS_BASE, SOLD_COMPS_PER_LISTING, SOLD_COMPS_MAX, get_comp_pool_size
 
+    # ── Resolve loose location terms ────────────────────────────────
+    from utils.location_resolver import resolve_with_details as _resolve_loc
+    loc_info = _resolve_loc(location)
+    search_location = loc_info["resolved"]
+    if loc_info["changed"]:
+        logger.info(f"Location resolved: '{loc_info['original']}' → '{loc_info['resolved']}' "
+                     f"(method: {loc_info['method']})")
+
     conn = get_connection()
+
+    # ── Persist the resolved location into the DB session ────────────
+    if loc_info["changed"]:
+        try:
+            import json as _json
+            existing = conn.execute(
+                "SELECT search_params FROM scan_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            if existing:
+                params = _json.loads(existing["search_params"] or "{}")
+                params["search_location"] = loc_info["resolved"]
+                params["location_resolution_method"] = loc_info["method"]
+                conn.execute(
+                    "UPDATE scan_sessions SET search_params = ? WHERE id = ?",
+                    (_json.dumps(params), session_id),
+                )
+                conn.commit()
+        except Exception as _exc:
+            logger.warning(f"Failed to persist resolved location: {_exc}")
     processed = 0
     hot_count = 0
     filtered_out = 0
@@ -343,6 +370,10 @@ def _run_scan_background(
                 _scan_status[session_id] = status_dict
 
         status = _scan_status.get(session_id, {})
+        # Store resolved location in status for UI display
+        if loc_info["changed"]:
+            status["original_location"] = loc_info["original"]
+            status["resolved_location"] = loc_info["resolved"]
 
         # Phase 1: Fetch listings first to gauge volume for dynamic comp pool sizing
         property_types = {
@@ -352,7 +383,7 @@ def _run_scan_background(
         }.get(scan_type)
 
         raw_listings = fetch_listings(
-            location=location,
+            location=search_location,
             listing_type="for_sale",
             past_days=90,
             property_type=property_types,
@@ -380,7 +411,7 @@ def _run_scan_background(
         _update_status(status)
 
         sold_comps = fetch_sold_comps(
-            location=location,
+            location=search_location,
             scan_type=scan_type,
             past_days=180,
             limit=comp_limit,
@@ -394,7 +425,7 @@ def _run_scan_background(
             try:
                 from scrapers.zillow_stealth import fetch_zillow_listings
                 zillow_listings = fetch_zillow_listings(
-                    location=location,
+                    location=search_location,
                     listing_type="for_sale",
                     max_pages=2,
                 )

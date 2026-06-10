@@ -2141,15 +2141,18 @@
         }
 
         function getCompUrl(comp, parentProp) {
-            // Sold comps: skip Realtor.com URL (hides sold prices) — use Zillow directly
-            // Zillow reliably shows sold prices on property pages
+            // 1. Direct Realtor.com detail URL from the data (most reliable)
+            if (comp.property_url && comp.property_url.startsWith('http')) {
+                return comp.property_url;
+            }
+            // 2. Build a Realtor.com search URL from the comp's address
             const city = (comp.city || parentProp.city || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
             const state = (comp.state || parentProp.state || '').toLowerCase();
             const addr = (comp.address || '').replace(/ /g, '-').replace(/,/g, '').toLowerCase();
             if (city && state && addr) {
-                return `https://www.zillow.com/homes/${addr}_${city}_${state}_rb/`;
+                return `https://www.realtor.com/realestateandhomes-search/${addr}_${city}_${state}/`;
             }
-            // Fallback: Google Maps
+            // 3. Fallback: Google Maps
             const fullAddr = [comp.address, comp.city, comp.state, parentProp.zip].filter(Boolean).join(', ');
             return `https://www.google.com/maps/search/${encodeURIComponent(fullAddr || comp.address || '')}`;
         }

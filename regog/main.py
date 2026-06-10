@@ -157,11 +157,19 @@ def cmd_scan(args):
     from scoring.commercial_score import score_commercial
     from ui.terminal import render_leads_table
 
+    # ── Resolve loose location terms ────────────────────────────────
+    from utils.location_resolver import resolve_with_details as _resolve_loc
+    loc_info = _resolve_loc(args.location)
+    search_location = loc_info["resolved"]
+    if loc_info["changed"]:
+        render_info(f"Location interpreted: '{loc_info['original']}' → '{loc_info['resolved']}'")
+
     print_banner()
-    render_info(f"Starting {args.scan_type} scan of '{args.location}'...")
+    render_info(f"Starting {args.scan_type} scan of '{search_location}'...")
 
     search_params = {
         "location": args.location,
+        "search_location": search_location,
         "scan_type": args.scan_type,
         "price_min": args.price_min,
         "price_max": args.price_max,
@@ -185,7 +193,7 @@ def cmd_scan(args):
         }.get(args.scan_type)
 
         raw_listings = fetch_listings(
-            location=args.location,
+            location=search_location,
             listing_type="for_sale",
             past_days=args.past_days,
             property_type=property_types,
@@ -206,7 +214,7 @@ def cmd_scan(args):
         # Phase 2: Fetch sold comps with correctly sized pool
         render_info(f"Fetching {comp_limit} sold comps for comparison...")
         sold_comps = fetch_sold_comps(
-            location=args.location,
+            location=search_location,
             scan_type=args.scan_type,
             past_days=180,
             limit=comp_limit,
@@ -252,7 +260,7 @@ def cmd_scan(args):
             try:
                 from scrapers.zillow_stealth import fetch_zillow_listings
                 zillow_listings = fetch_zillow_listings(
-                    location=args.location,
+                    location=search_location,
                     listing_type="for_sale",
                     max_pages=args.zillow_pages,
                 )
@@ -268,7 +276,7 @@ def cmd_scan(args):
             try:
                 from scrapers.redfin_playwright import scrape_redfin_listings
                 redfin_listings = scrape_redfin_listings(
-                    location=args.location,
+                    location=search_location,
                     price_max=args.price_max,
                     scan_type=args.scan_type,
                     limit=50,
@@ -287,7 +295,7 @@ def cmd_scan(args):
             try:
                 from scrapers.craigslist_scraper import scrape_craigslist_housing
                 cl_listings = scrape_craigslist_housing(
-                    location=args.location,
+                    location=search_location,
                     price_max=args.price_max,
                     scan_type=args.scan_type,
                     limit=50,
