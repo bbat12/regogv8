@@ -113,15 +113,23 @@ def phase_scrape(target_url: str,
 
     with sync_playwright() as p:
         browser, context = launch_browser(p, headless=True)
-        # Inject the saved storage state (cookies + localStorage)
-        context.add_cookies(_load_cookies(session_path))
-        # Restore localStorage too
-        for origin_url, storage in _load_local_storage(session_path).items():
-            page = context.new_page()
-            page.goto(origin_url, wait_until="domcontentloaded", timeout=15000)
-            for k, v in storage.items():
-                page.evaluate(f"localStorage.setItem({k!r}, {v!r})")
-            page.close()
+        # Load the new-format session file (cookies dict + cookie_string)
+        session = _load_session(session_path)
+        cookie_string = session.get("cookie_string", "")
+        if not cookie_string:
+            print(f"[scrape] session file at {session_path} is empty or malformed "
+                  f"(no cookie_string) — paste cookies via the REGOG UI first")
+            browser.close()
+            return []
+        print(f"[scrape] loaded {len(session.get('cookies', {}))} cookies from {session_path}")
+
+        # Set the Cookie header on ALL LoopNet requests via extra HTTP headers.
+        # This is the primary path — Playwright forwards it on every navigation
+        # and XHR/fetch the page issues, matching the "Cookie header" request.
+        context.set_extra_http_headers({"Cookie": cookie_string})
+        # Also inject the cookies into the browser context so client-side JS
+        # that reads document.cookie still works.
+        context.add_cookies(_session_to_cookies(session))
 
         page = context.new_page()
         page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
@@ -176,17 +184,50 @@ def phase_scrape(target_url: str,
         return unique
 
 
-def _load_cookies(session_path: Path) -> list[dict]:
-    with open(session_path) as f:
-        state = json.load(f)
-    return state.get("cookies", [])
+def _load_session(session_path: Path = SESSION_PATH) -> dict:
+    """
+    Load the new-format LoopNet session file produced by web/app.py's
+    /api/loopnet/save-cookie endpoint.
+
+    File shape:
+        {
+            "cookies":          {"SessionFarm_GUID": "...", "TDID": "...", ...},
+            "cookie_string":    "SessionFarm_GUID=...; TDID=...; ...",
+            "saved_at":         "2026-...",
+            "missing_expected": [...],
+            "expected_cookies": [...],
+        }
+
+    Returns {} on missing / invalid / empty file.
+    """
+    if not session_path.exists():
+        return {}
+    try:
+        with open(session_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[scrape] failed to read session file {session_path}: {e}")
+        return {}
 
 
-def _load_local_storage(session_path: Path) -> dict[str, dict]:
-    with open(session_path) as f:
-        state = json.load(f)
-    origins = state.get("origins", [])
-    return {o["origin"]: o.get("localStorage", []) for o in origins}
+def _session_to_cookies(session: dict, domain: str = ".loopnet.com") -> list[dict]:
+    """Convert a new-format session dict to Playwright cookie dicts."""
+    # 10 years from now — effectively a permanent session. LoopNet itself
+    # will invalidate the cookies server-side when they expire.
+    far_future = int(time.time()) + 60 * 60 * 24 * 365 * 10
+    cookies: list[dict] = []
+    for name, value in (session.get("cookies") or {}).items():
+        cookies.append({
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": "/",
+            "expires": far_future,
+            "httpOnly": False,
+            "secure": False,
+            "sameSite": "Lax",
+        })
+    return cookies
 
 
 def main():

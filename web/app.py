@@ -347,57 +347,96 @@ def get_property_detail(listing_id):
 
 # ── LoopNet credentials login ───────────────────────────────────────
 
-# ── LoopNet cookie import ─────────────────────────────────────
+# ── LoopNet cookie import (semicolon-separated bundle) ────────
 
 LOOPNET_SESSION_PATH = Path(__file__).resolve().parent.parent / "loopnet_session.json"
 
+# The LoopNet cookies required for an authenticated session. TDID and TDCPM
+# (The Trade Desk / ad-tracking) are intentionally excluded — browsers are
+# phasing them out and they aren't needed for LoopNet auth. Surfaced back to
+# the UI so the user knows when their DevTools export was incomplete.
+EXPECTED_LOOPNET_COOKIES: list[str] = [
+    "SessionFarm_GUID",
+    "UserPreferences",
+    "UserInfo_AssociateID",
+]
 
-def _build_loopnet_storage_state(cookie_value: str) -> dict:
+
+def _parse_cookie_bundle(bundle: str) -> dict:
     """
-    Build a minimal Playwright-compatible storage_state dict from a single
-    LoopNet 'li' session cookie. This is what phase_scrape() in
-    loopnet_auth.py expects when it calls context.add_cookies().
+    Parse a semicolon-separated HTTP cookie bundle ("name1=value1; name2=value2")
+    into the on-disk format used by loopnet_session.json.
+
+    Returns a dict with:
+        cookies:          {name: value, ...}
+        cookie_string:    "name1=value1; name2=value2; ..." (rebuilt, normalized)
+        saved_at:         ISO-8601 timestamp
+        missing_expected: list of expected cookies that were not in the bundle
+        expected_cookies: the full list of expected cookies (for client display)
     """
-    # 10 years from now — effectively a permanent session. LoopNet itself
-    # will invalidate the cookie server-side when it expires, so the on-disk
-    # timestamp is just a "freshness" signal.
-    far_future = int(time.time()) + 60 * 60 * 24 * 365 * 10
+    if not bundle or not bundle.strip():
+        raise ValueError("Cookie bundle is empty")
+
+    cookies: dict[str, str] = {}
+    parts: list[str] = []
+    for raw in bundle.split(";"):
+        entry = raw.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"Invalid cookie entry (missing '='): {entry!r}")
+        name, _, value = entry.partition("=")
+        name = name.strip()
+        value = value.strip()
+        if not name:
+            raise ValueError(f"Empty cookie name in entry: {entry!r}")
+        if not value:
+            raise ValueError(f"Empty cookie value for {name!r}")
+        # Last write wins (matches HTTP semantics for duplicate Set-Cookie)
+        cookies[name] = value
+        parts.append(f"{name}={value}")
+
+    if not cookies:
+        raise ValueError("No valid cookies parsed from bundle")
+
+    missing = [c for c in EXPECTED_LOOPNET_COOKIES if c not in cookies]
     return {
-        "cookies": [
-            {
-                "name": "li",
-                "value": cookie_value,
-                "domain": ".loopnet.com",
-                "path": "/",
-                "expires": far_future,
-                "httpOnly": False,
-                "secure": False,
-                "sameSite": "Lax",
-            }
-        ],
-        "origins": [],
+        "cookies": cookies,
+        "cookie_string": "; ".join(parts),
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+        "missing_expected": missing,
+        "expected_cookies": list(EXPECTED_LOOPNET_COOKIES),
     }
 
 
 @app.route("/api/loopnet/save-cookie", methods=["POST"])
 def loopnet_save_cookie():
     """
-    Accept a single LoopNet 'li' session cookie from the frontend and save it
-    as a Playwright-compatible storage_state file at LOOPNET_SESSION_PATH.
+    Accept a semicolon-separated LoopNet cookie bundle from the frontend and
+    save it to LOOPNET_SESSION_PATH. Expected cookies:
+    SessionFarm_GUID, TDID, TDCPM, UserPreferences, UserInfo_AssociateID.
     """
     data = request.get_json() or {}
-    cookie = (data.get("cookie") or "").strip()
+    bundle = (data.get("cookies") or "").strip()
 
-    if not cookie:
-        return jsonify({"error": "Cookie value is required"}), 400
-    if len(cookie) < 4 or len(cookie) > 4096:
-        return jsonify({"error": "Cookie length looks wrong (expected 4-4096 chars)"}), 400
+    if not bundle:
+        return jsonify({"error": "Cookie bundle is required"}), 400
+    if len(bundle) > 8192:
+        return jsonify({"error": "Cookie bundle too long (max 8192 chars)"}), 400
 
     try:
-        state = _build_loopnet_storage_state(cookie)
+        session = _parse_cookie_bundle(bundle)
+    except ValueError as e:
+        return jsonify({"error": f"Invalid cookie bundle: {e}"}), 400
+
+    try:
         with open(LOOPNET_SESSION_PATH, "w") as f:
-            json.dump(state, f, indent=2)
-        logger.info(f"LoopNet session saved to {LOOPNET_SESSION_PATH} ({len(cookie)} chars)")
+            json.dump(session, f, indent=2)
+        logger.info(
+            f"LoopNet session saved to {LOOPNET_SESSION_PATH} "
+            f"({len(session['cookies'])} cookies, "
+            f"{len(session['missing_expected'])} missing expected)"
+        )
     except Exception as e:
         logger.exception("Failed to save LoopNet session")
         return jsonify({"error": f"Failed to save session: {e}"}), 500
@@ -405,25 +444,43 @@ def loopnet_save_cookie():
     return jsonify({
         "status": "saved",
         "path": str(LOOPNET_SESSION_PATH),
-        "cookie_length": len(cookie),
+        "cookie_count": len(session["cookies"]),
+        "cookie_names": list(session["cookies"].keys()),
+        "missing_expected": session["missing_expected"],
+        "expected_cookies": session["expected_cookies"],
     })
 
 
 @app.route("/api/loopnet/session/status", methods=["GET"])
 def loopnet_session_status():
-    """Return whether a saved LoopNet session file exists."""
+    """Return whether a saved LoopNet session file exists and summary info."""
     exists = LOOPNET_SESSION_PATH.exists()
     age_min = None
+    cookie_count = 0
+    missing_expected: list[str] = []
     if exists:
         try:
             mtime = LOOPNET_SESSION_PATH.stat().st_mtime
             age_min = round((time.time() - mtime) / 60, 1)
         except Exception:
             pass
+        try:
+            with open(LOOPNET_SESSION_PATH) as f:
+                session = json.load(f)
+            # The new format stores cookies as {name: value}; the old format
+            # stored a Playwright storage_state list. Guard so the old shape
+            # doesn't get mis-reported as N cookies.
+            _cookies = session.get("cookies")
+            cookie_count = len(_cookies) if isinstance(_cookies, dict) else 0
+            missing_expected = session.get("missing_expected", []) or []
+        except Exception:
+            pass
     return jsonify({
         "exists": exists,
         "path": str(LOOPNET_SESSION_PATH),
         "age_minutes": age_min,
+        "cookie_count": cookie_count,
+        "missing_expected": missing_expected,
     })
 # ── Lava Search: Nationwide Multi-City Scan ────────────────────────────
 

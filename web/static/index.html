@@ -1161,12 +1161,12 @@
             <span class="ln-label">🔗 LOOPNET</span>
             <span class="ln-session-dot" id="ln-session-dot" title="Session status"></span>
             <textarea class="ln-input ln-textarea" id="ln-cookie"
-                      placeholder="Paste LoopNet 'li' cookie value here"
-                      rows="2" spellcheck="false" autocomplete="off"></textarea>
-            <button class="ln-btn" id="ln-btn" onclick="saveLoopnetCookie()">Save Cookie</button>
+                      placeholder="Paste 3 cookies: SessionFarm_GUID=...; UserPreferences=...; UserInfo_AssociateID=..."
+                      rows="3" spellcheck="false" autocomplete="off"></textarea>
+            <button class="ln-btn" id="ln-btn" onclick="saveLoopnetCookie()">Save Cookies</button>
             <span class="ln-status" id="ln-status"></span>
             <span class="ln-instructions">
-                Log into loopnet.com in your browser, open DevTools (F12) → Application → Cookies → loopnet.com, copy the value of the 'li' cookie, paste it here.
+                Log into <a href="https://www.loopnet.com" target="_blank" rel="noopener" style="color:#5cc8ff;text-decoration:underline;">loopnet.com</a>, then in your browser open DevTools (<kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-family:monospace;">F12</kbd>) &rarr; <strong>Application</strong> &rarr; <strong>Cookies</strong> &rarr; <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">https://www.loopnet.com</code>. Copy these <strong>3 cookies</strong> (skip ad-tracking ones like TDID/TDCPM): <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">SessionFarm_GUID</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserPreferences</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserInfo_AssociateID</code> &mdash; paste them here as one string separated by <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">;</code>.
             </span>
         </div>
 
@@ -1401,7 +1401,9 @@
 
     <script>
         // ─── LoopNet Cookie Import ───────────────────────────────────
-        // Reflects loopnet_session.json presence/age as a colored dot.
+        // Reflects loopnet_session.json presence/age as a colored dot, and
+        // exposes saveLoopnetCookie() to POST the user's semicolon-separated
+        // cookie bundle to /api/loopnet/save-cookie.
         async function refreshLoopnetSessionDot() {
             try {
                 const resp = await fetch('/api/loopnet/session/status');
@@ -1415,8 +1417,9 @@
                         dot.title = `Session exists but is ${Math.round(data.age_minutes/60)}h old — may need refresh`;
                     } else {
                         dot.classList.add('connected');
+                        const n = data.cookie_count != null ? ` · ${data.cookie_count} cookies` : '';
                         dot.title = data.age_minutes != null
-                            ? `Connected · session ${Math.round(data.age_minutes)}m old`
+                            ? `Connected · session ${Math.round(data.age_minutes)}m old${n}`
                             : 'Connected';
                     }
                 } else {
@@ -1424,6 +1427,73 @@
                 }
             } catch (err) {
                 // ignore
+            }
+        }
+
+        // POST the textarea contents to the backend as a semicolon-separated
+        // cookie bundle. Surfaces missing-expected cookies to the user.
+        async function saveLoopnetCookie() {
+            const ta = document.getElementById('ln-cookie');
+            const btn = document.getElementById('ln-btn');
+            const status = document.getElementById('ln-status');
+            const bundle = (ta.value || '').trim();
+
+            // Reset status
+            status.className = 'ln-status';
+            status.textContent = '';
+
+            if (!bundle) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Paste at least one cookie first';
+                return;
+            }
+
+            // Basic client-side hint: must contain at least one '='
+            if (!bundle.includes('=')) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Format: name=value; name2=value2';
+                return;
+            }
+
+            // Disable button + show spinner
+            btn.disabled = true;
+            const prevLabel = btn.textContent;
+            btn.textContent = 'Saving…';
+            status.className = 'ln-status working';
+            status.innerHTML = '<span class="spinner"></span> Saving…';
+
+            try {
+                const resp = await fetch('/api/loopnet/save-cookie', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cookies: bundle }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    status.className = 'ln-status error';
+                    status.textContent = '✕ ' + (data.error || `Save failed (HTTP ${resp.status})`);
+                    return;
+                }
+
+                const n = data.cookie_count || 0;
+                const missing = data.missing_expected || [];
+                if (missing.length === 0) {
+                    status.className = 'ln-status success';
+                    status.textContent = `✓ Saved ${n} cookies — all expected present`;
+                } else {
+                    status.className = 'ln-status error';
+                    status.textContent =
+                        `⚠ Saved ${n} cookies, but missing: ${missing.join(', ')}. ` +
+                        `Re-export from DevTools and include them.`;
+                }
+                // Refresh the status dot
+                refreshLoopnetSessionDot();
+            } catch (err) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Save failed: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = prevLabel;
             }
         }
 
