@@ -1,13 +1,15 @@
 # REGOG REBUILD V6 — Complete From-Scratch Handoff
 
-> **Purpose:** A new CLI agent (Codebuff/Claude) with **ZERO knowledge** of this project must be able to rebuild the entire REGOG application from scratch using this document alone. Every detail, problem, fix, convention, and gotcha is included.
+> **Purpose:** A new CLI agent (Codebuff/Claude) with **ZERO knowledge** of this project must be able to rebuild the entire REGOG application from scratch using this document alone, plus start running scans, fix common issues, and continue development. Every detail, problem, fix, convention, and gotcha is included.
+>
+> **Scope:** Captures the state of the project as of `5f2ca9d` (HEAD). Supersedes the previous V6 doc. Includes the LoopNet cookie bundle work and codespace keepalive (both landed in `00481a6` and `5f2ca9d`).
 
 ---
 
-## 📋 TABLE OF CONTENTS
+## TABLE OF CONTENTS
 
 1. [Application Overview](#1-application-overview)
-2. [Current State & Conventions](#2-current-state--conventions)
+2. [Current State & Git History](#2-current-state--git-history)
 3. [Project Structure](#3-project-structure)
 4. [Quick Start (from scratch)](#4-quick-start-from-scratch)
 5. [Configuration (config.py)](#5-configuration-configpy)
@@ -17,22 +19,25 @@
 9. [HomeHarvest Scraper — Active Listings](#9-homeharvest-scraper--active-listings)
 10. [Redfin Scraper — Sold Comps](#10-redfin-scraper--sold-comps)
 11. [Optional Scrapers (Zillow, Redfin Playwright, Craigslist)](#11-optional-scrapers-zillow-redfin-playwright-craigslist)
-12. [FEMA Flood Zone Scraper](#12-fema-flood-zone-scraper)
-13. [Brain Classifier (keyword-based, no LLM)](#13-brain-classifier-keyword-based-no-llm)
-14. [Listing Filter](#14-listing-filter)
-15. [Acreage Enricher](#15-acreage-enricher)
-16. [Comp Engine (2D Expansion Search)](#16-comp-engine-2d-expansion-search)
-17. [Scoring Modules (Residential / Land / Commercial)](#17-scoring-modules-residential--land--commercial)
-18. [Scoring Utilities](#18-scoring-utilities)
-19. [Web App Backend (Flask + SSE)](#19-web-app-backend-flask--sse)
-20. [Web Frontend (Single-Page HTML)](#20-web-frontend-single-page-html)
-21. [CLI (main.py)](#21-cli-mainpy)
-22. [Lava Search Mode](#22-lava-search-mode)
-23. [Mode Separation (Regular vs Lava)](#23-mode-separation-regular-vs-lava)
-24. [Utility Modules](#24-utility-modules)
-25. [Tests](#25-tests)
-26. [ALL KNOWN PROBLEMS & HOW THEY WERE FIXED](#26-all-known-problems--how-they-were-fixed)
-27. [Problems That STILL EXIST](#27-problems-that-still-exist)
+12. [LoopNet Auth (cookie bundle import)](#12-loopnet-auth-cookie-bundle-import)
+13. [FEMA Flood Zone Scraper](#13-fema-flood-zone-scraper)
+14. [Brain Classifier (keyword-based, no LLM)](#14-brain-classifier-keyword-based-no-llm)
+15. [Listing Filter](#15-listing-filter)
+16. [Acreage Enricher](#16-acreage-enricher)
+17. [Comp Engine (2D Expansion Search)](#17-comp-engine-2d-expansion-search)
+18. [Scoring Modules (Residential / Land / Commercial)](#18-scoring-modules-residential--land--commercial)
+19. [Scoring Utilities](#19-scoring-utilities)
+20. [Web App Backend (Flask + SSE)](#20-web-app-backend-flask--sse)
+21. [Web Frontend (Single-Page HTML)](#21-web-frontend-single-page-html)
+22. [CLI (main.py)](#22-cli-mainpy)
+23. [Lava Search Mode](#23-lava-search-mode)
+24. [Flip Radar Mode](#24-flip-radar-mode)
+25. [Utility Modules](#25-utility-modules)
+26. [Tests](#26-tests)
+27. [Operational: Codespace Idle-Kill + Keepalive](#27-operational-codespace-idle-kill--keepalive)
+28. [ALL KNOWN PROBLEMS & HOW THEY WERE FIXED](#28-all-known-problems--how-they-were-fixed)
+29. [Problems That STILL EXIST](#29-problems-that-still-exist)
+30. [Build Doc References (sibling files)](#30-build-doc-references-sibling-files)
 
 ---
 
@@ -47,6 +52,9 @@
 5. **Computes comparable sales** using a 2D expansion search (radius × time)
 6. **Scores** each property 0-100+ across 5-6 signals (residential/land/commercial variants)
 7. **Displays** results via a dark-themed Flask web app with real-time SSE streaming, OR a Rich CLI terminal
+8. **Lava Search** — only surfaces extreme deals (200%+ profit ratio)
+9. **Flip Radar** — distress-scored properties with ARV/rehab/profit/ROI analysis
+10. **LoopNet auth** — semicolon-separated cookie bundle import (no Playwright login)
 
 **Stack:** Python 3.11+ · SQLite · Flask · HomeHarvest · Playwright · Rich · Jinja2
 
@@ -54,89 +62,67 @@
 
 ---
 
-## 2. Current State & Conventions
+## 2. Current State & Git History
 
-### Git State
+### Git State (HEAD = `5f2ca9d`)
 
-- **Tags:** v6, v7
-- **Latest commit (v7):** Stacked mode boxes with per-mode scan buttons
-- **17 commits** total from initial through V7
-- **98 tests** passing
+- **Branch:** `main`, working tree clean except for one untracked file (`loopnet_session.json` — see §12)
+- **HEAD:** `5f2ca9d` — "chore: keepalive — fail-fast on missing dir, track child PID, stop on clean exit"
+- **Ahead of `origin/main`:** 2 commits (`5f2ca9d` + `00481a6`). **Not pushed.**
+- **Last 3 commits:**
+  1. `5f2ca9d` — keepalive script improvements (cd guard, child-PID tracking, clean-exit detection)
+  2. `00481a6` — "chore: LoopNet cookie bundle import + codespace keepalive" (4 files: `web/app.py`, `web/static/index.html`, `regog/scrapers/loopnet_auth.py`, new `scripts/regog_keepalive.sh`)
+  3. `788b162` — "chore: also ignore *.pyo and *.pyd" (`.gitignore` only)
 
-### Coding Conventions
+### Tests
 
-- **Type hints** required on all functions
-- **Deferred imports** — heavy modules imported INSIDE functions (not at module top), because `sys.path` is modified at module level before any function is called
-- **Config-driven** — all thresholds, weights, and settings in `regog/config.py`, never hardcoded
-- **`g(*keys)` pattern** in normalizers — tries multiple possible column names, returns first non-None
-- **`_fb_` prefix** for metadata keys in scores dicts — filtered out when summing numeric scores
-- **In-memory cache** for FEMA flood zones and county lookups
-- **`__init__.py`** needed in ALL subdirectories for Python package imports
+- **98 tests passing** (run `pytest -q` to verify)
 
-### The Two Entry Points
+### App Status
 
-1. **`serve_report.py`** (port 8080, non-debug, threaded) — the web app entry point
-2. **`python regog/main.py`** — the CLI entry point
-
-Both call `init_db()` which runs schema + migrations.
-
-### Critical Import Pattern
-
-```python
-# serve_report.py:
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "regog"))
-
-# regog/main.py:
-sys.path.insert(0, str(Path(__file__).parent))
-
-# web/app.py:
-sys.path.insert(0, str(Path(__file__).parent.parent / "regog"))
-sys.path.insert(0, str(Path(__file__).parent.parent))
-```
+- **App is OFFLINE right now** (HTTP 000, no `serve_report` process running). Must be started from the user's local terminal (see §27 — basher subshell in AI agent environment reaps all detached processes).
 
 ---
 
 ## 3. Project Structure
 
 ```
-/workspaces/REgog/
+/workspaces/regogv8/
 ├── REGOG_REBUILD_V6.md          ← THIS FILE
-├── REGOG_V5_REBUILD.md          ← Previous rebuild guide (V5 era)
-├── REGOG_V4_Build_Prompt.md     ← Original V4 build instructions
-├── REGOG_V5_FIXES.md            ← V5 scoring fix instructions
-├── REGOG_Comprehensive_Analysis_Audit.md  ← 3-dev debug session
-├── REGOG_Architecture_Deep_Dive.md        ← Architecture doc
-├── REGOG_Board_Meeting_Q2_2026.md        ← Board meeting findings
-├── REGOG_V4_Three_Dev_Zero_Results_Debug_Analysis.md  ← Zero-results bug
-├── REGOG_Deal_Audit.md          ← (may not exist, is referenced)
-├── REGOG_Scan_Analysis_and_Debate.md     ← (may exist)
-├── REGOG_Billings_Scan_Report.md         ← (may exist)
-├── README.md                    ← Minimal
+├── TEMP_HANDOFF.md              ← Short handoff for previous agent (delete after use)
+├── README.md                    ← Minimal: "# REgog\nreal estate gog"
+├── requirements.txt             ← (does not exist as a file — see §4 for the actual deps)
+├── .gitignore                   ← ignores regog.db, regog_config.json, *.pyo, *.pyd, regog_report.html, etc.
+│
 ├── serve_report.py              ← ENTRY POINT: starts Flask web app on port 8080
-├── regog.db                     ← SQLite database (auto-created, gitignored)
+├── start-regog.sh               ← Boot script (Xvfb + tmux + serve_report)
+├── start-display.sh             ← Boot script (Xvfb + x11vnc + noVNC for LoopNet auth popup — legacy)
+├── requirements.txt             ← MAY NOT EXIST (see §4 for the actual dep list)
+│
+├── regog.db                     ← SQLite database (auto-created in project root, gitignored)
+├── loopnet_session.json         ← LoopNet cookies (UNTRACKED — contains real/test cookies, never commit)
 ├── regog_config.json            ← Config overrides (auto-created, gitignored)
 ├── regog_report.html            ← Generated HTML report (gitignored)
 │
 ├── regog/                       ← Main Python package
-│   ├── __init__.py              ← Empty
+│   ├── __init__.py
 │   ├── config.py                ← ALL settings, weights, thresholds
 │   ├── main.py                  ← CLI entry point (argparse)
-│   ├── requirements.txt         ← (may not exist — deps listed below)
 │   │
 │   ├── db/
 │   │   ├── __init__.py
-│   │   ├── schema.sql           ← CREATE TABLE + indexes + migrations
-│   │   └── database.py          ← SQLite wrapper: init, CRUD, upsert, migrations
+│   │   ├── schema.sql           ← CREATE TABLE + indexes
+│   │   └── database.py          ← SQLite wrapper: init, CRUD, upsert, migrations, tier-fix migration
 │   │
 │   ├── scrapers/
 │   │   ├── __init__.py
-│   │   ├── homeharvest_scraper.py   ← fetch_listings() + normalize_listing()
-│   │   ├── redfin_scraper.py        ← fetch_sold_comps() (uses HomeHarvest for sold)
-│   │   ├── zillow_stealth.py        ← Playwright-based Zillow scraper
-│   │   ├── redfin_playwright.py     ← Playwright Redfin browser scraper
-│   │   ├── craigslist_scraper.py    ← HTTPX+BS Craigslist FSBO scraper
-│   │   ├── fema_scraper.py          ← FEMA flood zone API
+│   │   ├── homeharvest_scraper.py   ← fetch_listings() + normalize_listing() (PRIMARY listing source)
+│   │   ├── redfin_scraper.py        ← fetch_sold_comps() + normalize_sold_listing() (uses HomeHarvest for sold)
+│   │   ├── zillow_stealth.py        ← Playwright-based Zillow scraper (optional, --use-zillow)
+│   │   ├── redfin_playwright.py     ← Playwright Redfin browser scraper (optional, --use-redfin)
+│   │   ├── craigslist_scraper.py    ← HTTPX+BS Craigslist FSBO scraper (optional, --use-craigslist)
+│   │   ├── loopnet_auth.py          ← LoopNet cookie loader (Cookie header on all requests)
+│   │   ├── fema_scraper.py          ← FEMA flood zone API (free ArcGIS)
 │   │   ├── assessor_scraper.py      ← Assessor data + county registry
 │   │   └── permit_scraper.py        ← Permit signal inference
 │   │
@@ -151,7 +137,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 │   │
 │   ├── scoring/
 │   │   ├── __init__.py
-│   │   ├── utils.py                 ← Shared: tiers, fallback, confidence, variance
+│   │   ├── utils.py                 ← Shared: tiers, fallback, confidence, variance, completeness
 │   │   ├── residential_score.py     ← 0-100 scoring for homes
 │   │   ├── land_score.py            ← 0-100 scoring for land
 │   │   └── commercial_score.py      ← 0-100 scoring for commercial
@@ -174,13 +160,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 │       ├── rate_limiter.py          ← Per-source request throttling
 │       ├── config_store.py          ← JSON config file
 │       ├── dedup.py                 ← Address-based dedup
-│       └── location_resolver.py    ← Colloquial→City,ST resolution
+│       └── location_resolver.py     ← Colloquial→City,ST resolution
 │
 ├── web/
 │   ├── __init__.py
-│   ├── app.py                      ← Flask backend: all API + SSE + background scans
+│   ├── app.py                      ← Flask backend: all API + SSE + background scans + LoopNet cookie endpoints
 │   └── static/
 │       └── index.html              ← Single-page dark UI (all CSS+JS inline)
+│
+├── scripts/
+│   └── regog_keepalive.sh          ← while-true restart wrapper (see §27)
 │
 └── tests/
     ├── __init__.py
@@ -197,27 +186,45 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 ## 4. Quick Start (from scratch)
 
 ```bash
-# 1. Environment
-cd /workspaces/REgog
+# 1. Clone and enter (assuming git is set up)
+cd /workspaces/regogv8
+
+# 2. Create venv and install deps
 python3 -m venv venv && source venv/bin/activate
+pip install homeharvest beautifulsoup4 httpx lxml rich geopy apscheduler jinja2 playwright flask flask-cors
+playwright install chromium   # for Zillow/Redfin scrapers (optional)
 
-# 2. Dependencies
-pip install homeharvest beautifulsoup4 httpx lxml sqlite-utils rich geopy apscheduler jinja2 playwright flask flask-cors
-playwright install chromium  # for Zillow/Redfin scrapers
-
-# 3. Init database
+# 3. Initialize database (creates regog.db with schema + migrations)
 python3 -c "from db.database import init_db; init_db()"
 
-# 4. Run tests (98 expected)
-python -m pytest tests/ -v --tb=short
+# 4. Run tests (98 expected green)
+pytest -q
 
-# 5. Start web app
-python3 serve_report.py
-# → http://localhost:8080/
+# 5. Start web app (USER'S LOCAL TERMINAL — not via AI tool calls)
+nohup bash scripts/regog_keepalive.sh > /tmp/regog-app.log 2>&1 < /dev/null & disown
+sleep 5
+curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:8080/  # expect: 200
 
-# 6. Or use CLI:
-python3 regog/main.py scan residential --location "Dallas, TX" --price-max 400000 --limit 10
+# 6. Or use CLI directly
+python3 regog/main.py scan residential --location "Dallas, TX" --price-max 400000
 python3 regog/main.py leads --tier HOT
+```
+
+### Deps (the real list, in case `requirements.txt` is missing)
+
+```
+homeharvest>=0.8.0
+beautifulsoup4>=4.12.0
+httpx>=0.25.0
+lxml>=4.9.0
+rich>=13.0.0
+geopy>=2.3.0
+apscheduler>=3.10.0
+jinja2>=3.1.0
+playwright>=1.40.0
+flask>=2.0
+flask-cors>=3.0
+# playwright-stealth>=1.0.6  # optional — Zillow scraper degrades gracefully
 ```
 
 ---
@@ -233,17 +240,17 @@ from pathlib import Path
 DB_PATH = str(Path(__file__).parent.parent / "regog.db")  # ABSOLUTE path
 ```
 
-**CRITICAL:** This was previously relative (`"regog.db"`) which caused a **dual-database bug** where the CLI and web app wrote to different SQLite files. CLI resolved to `regog/regog.db`, web app resolved to `regog.db`. Both had different data and different schema versions.
+**CRITICAL:** This was previously relative (`"regog.db"`) which caused a **dual-database bug** where the CLI and web app wrote to different SQLite files. CLI resolved to `regog/regog.db`, web app resolved to `regog.db`. Both had different data and different schema versions. **Always absolute.**
 
 ### Scoring Weights
 
 ```python
 RESIDENTIAL_WEIGHTS = {
-    "price_deviation": 0.40,   # 40 pts max
-    "dom_signal": 0.15,        # 15 pts max
-    "assessor_gap": 0.20,      # 20 pts max
-    "condition": 0.15,         # 15 pts max
-    "flood_penalty": 0.10,     # 10 pts max
+    "price_deviation": 0.40,   # How far below median comp price
+    "dom_signal": 0.15,        # Days on market anomaly
+    "assessor_gap": 0.20,      # Listed vs assessed value gap
+    "condition": 0.15,         # Brain classification
+    "flood_penalty": 0.10,     # FEMA zone deduction
 }
 
 LAND_WEIGHTS = {
@@ -264,34 +271,40 @@ COMMERCIAL_WEIGHTS = {
 }
 ```
 
-### Lead Tiers (EVOLVED — changed from V4→V5)
+### Lead Tiers (current V6 thresholds)
 
 ```python
-# V4 had HOT≥70, WARM≥50, NEUTRAL≥35, RISKY≥20, SKIP<20
-# V5 changed to: HOT≥100, MEDIUM≥50, WARM≥0, SKIP<0
-# NOTE: RISKY tier was REMOVED. Current thresholds:
 TIER_THRESHOLDS = {
-    "HOT": 100,   # Only scores above 100 qualify
-    "MEDIUM": 50, # 50-100: solid leads
-    "WARM": 0,    # 0-49: low priority
+    "HOT": 100,   # Only scores above 100 (uncapped) qualify as HOT
+    "MEDIUM": 50, # 50-100: solid leads worth investigating
+    "WARM": 0,    # 0-49: low-priority, needs more data
 }
-# Negative scores → SKIP
+# SKIP is implicit for any score < 0 (no explicit key in the dict)
+# NOTE: RISKY tier was REMOVED. Current thresholds are HOT/MEDIUM/WARM + implicit SKIP.
 ```
 
 ### Comp Engine
 
 ```python
-MIN_COMPS_REQUIRED = 5        # Minimum comps before accepting
-COMP_LOOKBACK_TIERS = [180, 270, 365, 540, 730]  # 2 years max
-COMP_STALENESS_PENALTY = 0.15  # 15% confidence reduction when lookback > 365d
+COMP_DEFAULTS = {
+    "radius_miles": 3,
+    "min_comps_required": 3,
+    "max_radius_miles": 10,
+    "similar_sqft_pct": 0.30,   # ±30% sqft for residential
+    "similar_acres_pct": 0.50,  # ±50% acres for land
+    "similar_beds_range": 1,    # ±1 bedroom for comp matching
+    "similar_baths_range": 1,   # ±1 bathroom for comp matching
+    "sold_months": 12,          # look back window
+}
+
+MIN_COMPS_REQUIRED = 5  # minimum comps before accepting a tier — expanded search tries harder to find 5+
+COMP_LOOKBACK_TIERS = [180, 270, 365, 540, 730]  # 2 years max lookback
+COMP_STALENESS_PENALTY = 0.15  # 15% confidence reduction when lookback > 365 days
 COMP_CONFIDENCE_HIGH = 0.80
 COMP_CONFIDENCE_MEDIUM = 0.50
 COMP_CONFIDENCE_LOW = 0.00
-```
 
-### Comp Radii (3 tiers per density × category)
-
-```python
+# Comp search radii: 3 tiers per density per category
 COMP_RADII = {
     "residential": {
         "urban":    [0.25, 0.50, 0.75],
@@ -311,22 +324,39 @@ COMP_RADII = {
 }
 ```
 
-### Scoring Maps
+### Sold Comp Pool Sizing (Part 4 fix)
+
+```python
+SOLD_COMPS_BASE = 300          # minimum pool size
+SOLD_COMPS_PER_LISTING = 0.15  # 15% of active listing count
+SOLD_COMPS_MAX = 2000          # hard cap
+
+def get_comp_pool_size(active_listing_count: int) -> int:
+    dynamic_size = int(active_listing_count * SOLD_COMPS_PER_LISTING)
+    return max(SOLD_COMPS_BASE, min(dynamic_size, SOLD_COMPS_MAX))
+```
+
+### FEMA Flood Zone Scoring
 
 ```python
 FLOOD_SCORES = {
     "X": 10,        # Minimal risk — no penalty
     "AE": 3,        # High risk — 7pt penalty
-    "A": 4,
+    "A": 4,         # High risk
     "VE": 0,        # Coastal extreme — full penalty
-    "UNKNOWN": 0,   # No data — ZERO penalty. Never penalize for missing data.
-    None: 0,        # Same fix — was 8, changed to 0 (Part 1 fix)
+    "UNKNOWN": 0,   # No data — ZERO penalty. Never penalize for data we lack.
+    None: 0,        # Same — null flood_zone yields 0 not 8
 }
+
 # CRITICAL: FLOOD_SCORES[None] WAS 8. Changed to 0 in Part 1 fix.
 # The old default penalized every property 8 pts when flood zone was unknown.
 # Since FEMA data is unreliable and often missing for rural areas, this was
 # unfairly tanking scores.
+```
 
+### Other Scoring Maps
+
+```python
 CONDITION_SCORES = {
     "standard": 15, "luxury": 12, "vacant": 10,
     "distressed": 7, "teardown": 4, "fire_damage": 3,
@@ -341,6 +371,9 @@ DOM_SCORE_BRACKETS = [
     (365, 2),     # 181-365 days → 2 pts
     (float("inf"), 0),  # 365+ → 0 pts (was 2, now 0 to enable SKIP)
 ]
+
+SCAN_DEFAULTS = {"past_days": 180}  # was 90 — increased to capture older inventory
+HIGH_RISE_MIN_STORIES = 5  # CONDO with ≥5 stories → reclassified as commercial
 ```
 
 ### Brain Classifier Keywords
@@ -348,58 +381,50 @@ DOM_SCORE_BRACKETS = [
 ```python
 CLASSIFICATION_KEYWORDS = {
     "distressed": ["distressed", "as-is", "needs work", "fixer-upper", "deferred maintenance", ...],
-    "teardown": ["teardown", "land value", "demolish", "knockdown", ...],
-    "fire_damage": ["fire damage", "smoke damage", "burnt", "structure fire", ...],
-    "vacant": ["vacant", "abandoned", "boarded up", ...],
-    "luxury": ["luxury", "high-end", "estate", "waterfront", "gourmet kitchen", ...],
+    "teardown":   ["teardown", "land value", "demolish", "knockdown", ...],
+    "fire_damage":["fire damage", "smoke damage", "burnt", "structure fire", ...],
+    "vacant":     ["vacant", "abandoned", "unoccupied", "boarded up", ...],
+    "luxury":     ["luxury", "high-end", "premium", "estate", "gourmet kitchen", "marble", "waterfront", ...],
 }
 
 SELLER_MOTIVATION_KEYWORDS = {
-    "high": ["motivated seller", "must sell", "relocation", "divorce", "estate sale", "short sale", "price reduced", ...],
-    "medium": ["open to offers", "flexible", "offers encouraged"],
+    "high":   ["motivated seller", "must sell", "relocation", "divorce", "estate sale",
+               "short sale", "pre-foreclosure", "bankruptcy", "price reduced", "price reduction"],
+    "medium": ["open to offers", "flexible", "seller motivated", "offers encouraged"],
 }
 
-RED_FLAG_KEYWORDS = ["foundation issues", "structural", "mold", "termites", "roof leak", ...]
-GREEN_FLAG_KEYWORDS = ["renovated", "updated", "new roof", "new hvac", "move-in ready", ...]
+RED_FLAG_KEYWORDS = ["foundation issues", "structural", "mold", "termites", "roof leak",
+                     "electrical", "plumbing", "septic", "well water", "no heat",
+                     "no ac", "code violation", "unpermitted", "lien", "title issue"]
+GREEN_FLAG_KEYWORDS = ["renovated", "updated", "new roof", "new hvac", "new windows",
+                       "new kitchen", "new bath", "remodeled", "move-in ready",
+                       "turnkey", "investment opportunity", "positive cash flow",
+                       "tenant occupied", "rental", "income producing"]
 ```
 
 ### Rate Limits
 
 ```python
 RATE_LIMITS = {
-    "realtor":    {"delay_min": 2,  "delay_max": 5,  "max_per_hour": 200},
-    "redfin":     {"delay_min": 1,  "delay_max": 3,  "max_per_hour": 300},
-    "zillow":     {"delay_min": 4,  "delay_max": 9,  "max_per_hour": 60},
-    "assessor":   {"delay_min": 3,  "delay_max": 8,  "max_per_hour": 100},
-    "craigslist": {"delay_min": 3,  "delay_max": 7,  "max_per_hour": 80},
+    "realtor":    {"delay_min": 2, "delay_max": 5, "max_per_hour": 200},
+    "redfin":     {"delay_min": 1, "delay_max": 3, "max_per_hour": 300},
+    "zillow":     {"delay_min": 4, "delay_max": 9, "max_per_hour": 60},
+    "assessor":   {"delay_min": 3, "delay_max": 8, "max_per_hour": 100},
+    "craigslist": {"delay_min": 3, "delay_max": 7, "max_per_hour": 80},
 }
-```
 
-### Dynamic Comp Pool Sizing (Part 4 fix)
-
-```python
-SOLD_COMPS_BASE = 300          # minimum pool size
-SOLD_COMPS_PER_LISTING = 0.15  # 15% of active listing count
-SOLD_COMPS_MAX = 2000          # hard cap
-
-def get_comp_pool_size(active_listing_count: int) -> int:
-    dynamic_size = int(active_listing_count * SOLD_COMPS_PER_LISTING)
-    return max(SOLD_COMPS_BASE, min(dynamic_size, SOLD_COMPS_MAX))
-```
-
-### High-Rise Detection
-
-```python
-HIGH_RISE_MIN_STORIES = 5  # CONDOs with >=5 stories → reclassified as commercial
+USER_AGENTS = [  # 5 modern Chrome/Firefox UAs, rotated
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    # ... 4 more
+]
 ```
 
 ---
 
 ## 6. Database (db/)
 
-### schema.sql
+### Tables (schema.sql)
 
-Three tables:
 - **`properties`** — 65+ columns (all scoring, comp, enrichment, and metadata fields)
 - **`scan_sessions`** — id, started_at, completed_at, scan_type, search_params (JSON), properties_found, hot_leads_found
 - **`price_history_tracking`** — id, listing_id, recorded_at, price, days_on_market
@@ -428,13 +453,15 @@ _JSON_FIELDS = {
 |----------|---------|
 | `init_db()` | Reads schema.sql, runs `_run_migrations()`, `_fix_corrupted_tiers()` |
 | `_run_migrations()` | ALTER TABLE ADD COLUMN for 20+ columns (non-destructive) |
-| `_fix_corrupted_tiers()` | Fixes `DISTRESSED_HOT` → `HOT` (Part 3 fix) |
+| `_fix_corrupted_tiers()` | Fixes `DISTRESSED_HOT` → `HOT` (Part 3 fix — strips `DISTRESSED_` prefix) |
 | `create_scan_session()` | INSERT, returns 8-char UUID |
 | `complete_scan_session()` | Updates completed_at + counts |
-| `upsert_property()` | INSERT OR UPDATE by listing_id |
+| `upsert_property()` | INSERT OR UPDATE by listing_id. Returns True if new. |
 | `get_session_properties()` | SELECT * for session, ORDER BY score DESC |
 | `get_stats()` | Total, hot, warm, sessions, avg_score |
 | `search_properties()` | Filtered search with all optional params |
+| `get_leads_by_tier()` | Top properties by tier |
+| `_deserialize_row()` | Parses JSON fields on read |
 
 ### Lava Columns (added V7)
 
@@ -444,13 +471,35 @@ lava_profit_ratio REAL
 lava_city TEXT
 ```
 
-These store Lava Search metadata — the profit percentage, ratio, and source city for nationwide lava scans.
+### IMPORTANT: Transient fields popped before upsert
+
+These fields are used in-memory and during SSE streaming but are **popped** before `upsert_property()` to avoid DB errors (or because the schema didn't have them at some point):
+- `property_url` — Realtor.com detail URL
+- `style` — Property type for comp matching
+- `cap_rate_data` — Estimated cap rate, NOI, GRM (computed for commercial)
+- `completeness` — Score completeness factors
+- `comp_acreage_matched` — Bool indicating acreage-filtered comps
+
+All three callers (`regog/main.py`, `web/app.py`, both scan paths) pop these, call `upsert_property()`, then restore. Pattern:
+
+```python
+cap_rate_data = prop.pop("cap_rate_data", None)
+completeness_data = prop.pop("completeness", None)
+comp_acreage_matched = prop.pop("comp_acreage_matched", None)
+
+upsert_property(conn, prop)
+
+# Restore for SSE stream / display
+if cap_rate_data: prop["cap_rate_data"] = cap_rate_data
+if completeness_data: prop["completeness"] = completeness_data
+if comp_acreage_matched is not None: prop["comp_acreage_matched"] = comp_acreage_matched
+```
 
 ---
 
 ## 7. Entry Points & Import Paths
 
-### serve_report.py (THE main entry point)
+### `serve_report.py` (THE web app entry point)
 
 ```python
 #!/usr/bin/env python3
@@ -462,23 +511,37 @@ from db.database import init_db
 init_db()  # RUNS MIGRATIONS — CRITICAL for new columns!
 
 from web.app import app
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 ```
 
-### Deferred Imports Pattern
+### Import Path Setup (CRITICAL)
 
-**BOTH** `main.py` and `web/app.py` import heavy modules INSIDE functions:
+Every entry point must add the project root to `sys.path` before any REGOG imports:
+
+- **`serve_report.py`**: `sys.path.insert(0, os.path.dirname(__file__))` + `sys.path.insert(0, os.path.join(os.path.dirname(__file__), "regog"))`
+- **`regog/main.py`**: `sys.path.insert(0, str(Path(__file__).parent))`
+- **`web/app.py`**: `sys.path.insert(0, str(Path(__file__).parent.parent / "regog"))` + `sys.path.insert(0, str(Path(__file__).parent.parent))`
+- **Tests**: `sys.path.insert(0, str(Path(__file__).parent.parent / "regog"))`
+
+### Deferred Imports Pattern (CRITICAL)
+
+Both `main.py` and `web/app.py` import heavy modules **inside functions**, not at module level:
 
 ```python
 def cmd_scan(args):
     from db.database import get_connection, create_scan_session  # Inside function!
     from scrapers.homeharvest_scraper import fetch_listings
-    # ...
+    # ... rest of function
 ```
 
-**Why:** `sys.path` is modified at module level before any function runs. Top-level imports would execute before `sys.path` is ready → `ModuleNotFoundError`.
+**Why:** `sys.path` is modified at module level before any function is called. Top-level imports would execute before `sys.path` is ready → `ModuleNotFoundError`.
+
+### All `__init__.py` files must exist
+
+Every subdirectory (`scrapers/`, `db/`, `enrichment/`, `scoring/`, `ui/`, `utils/`, `scheduler/`, `tests/`, `web/`) needs an empty `__init__.py` to be importable as a Python package.
 
 ---
 
@@ -487,10 +550,10 @@ def cmd_scan(args):
 Both CLI and web app follow the same pipeline:
 
 ```
-1. Fetch SOLD comps ──── redfin_scraper.fetch_sold_comps(location, scan_type)
+1. Fetch SOLD comps ────────── redfin_scraper.fetch_sold_comps(location, scan_type)
    (up to dynamic pool size: max(base=300, count*0.15, cap=2000))
 
-2. Fetch ACTIVE listings ─ homeharvest_scraper.fetch_listings(location, for_sale)
+2. Fetch ACTIVE listings ───── homeharvest_scraper.fetch_listings(location, for_sale)
 
 3. (Optional secondary scrapers) ─ Zillow, Redfin Playwright, Craigslist
 
@@ -526,13 +589,13 @@ property_types = {
 
 **File:** `regog/scrapers/homeharvest_scraper.py`
 
-### fetch_listings(location, listing_type, past_days, property_type)
+### `fetch_listings(location, listing_type, past_days, property_type)`
 
 - Calls `homeharvest.scrape_property()` → returns pandas DataFrame
 - Converts to list of dicts
-- Returns `[]` if homeharvest not installed (graceful)
+- Returns `[]` if `homeharvest` not installed (graceful)
 
-### normalize_listing(raw, source, scan_session_id, scan_type) → dict
+### `normalize_listing(raw, source, scan_session_id, scan_type) → dict`
 
 **THE MOST CRITICAL normalization function.** Maps HomeHarvest's varied column names to REGOG's schema.
 
@@ -564,10 +627,12 @@ def g(*keys):
 | `primary_photo` | `primary_photo`, `photo`, `image_url`, `thumbnail_url` |
 | `stories` | `stories`, `num_stories`, `floors`, `total_stories` |
 
-**Acres fallback:** If acres is still None, derive from `lot_sqft` / 43560.
+**Acres fallback:** If `acres` is still None, derive from `lot_sqft / 43560`.
 **Sqft fallback for land:** If no sqft but has acres, sqft = acres * 43560.
+**lot_sqft fallback chain:** ~10 possible keys.
+**Helpers `num(v)` and `flt(v)`** are defined INSIDE `normalize_listing`, BEFORE use.
 
-**⚠️ This file ALSO has a STALE `fetch_sold_comps()` that returns `[]`. Do NOT use it.** The real sold comps function is in `redfin_scraper.py`.
+⚠️ **This file ALSO has a STALE `fetch_sold_comps()` that returns `[]`. Do NOT use it.** The real sold comps function is in `redfin_scraper.py`.
 
 ---
 
@@ -575,44 +640,43 @@ def g(*keys):
 
 **File:** `regog/scrapers/redfin_scraper.py`
 
-### fetch_sold_comps(location, scan_type, past_days=180, limit=200) → list[dict]
+### `fetch_sold_comps(location, scan_type, past_days=180, limit=200) → list[dict]`
 
 - Uses HomeHarvest under the hood with `listing_type="sold"`
 - Returns up to `limit` sold comps
-- Normalized via `normalize_sold_listing()` — **NOT** `normalize_listing()`
+- Each normalized via `normalize_sold_listing()` — **NOT** `normalize_listing()`
 
-### normalize_sold_listing(raw, scan_type) → dict | None
+### `normalize_sold_listing(raw, scan_type) → dict | None`
 
 **Explicitly handles sold-specific column names:**
+
 - `list_price` → tries `sold_price`, `last_sold_price`, `close_price`, `sale_price`, `price`, `list_price`
 - `last_sold_date` → tries `last_sold_date`, `sold_date`, `close_date`, `closing_date`
 - `listing_status` → forced to `"sold"`
 - Returns `None` if no `sold_price` (critical field)
 
-**⚠️ `fetch_sold_comps_near_coords()` is defined TWICE in this file** — both return `[]`. HomeHarvest doesn't support coordinate-based queries.
+⚠️ `fetch_sold_comps_near_coords()` is defined TWICE in this file — both return `[]`. HomeHarvest doesn't support coordinate-based queries.
 
 ---
 
 ## 11. Optional Scrapers
 
-### Zillow (zillow_stealth.py)
+### Zillow (zillow_stealth.py) — `--use-zillow`
 
 - Playwright-based with anti-bot: stealth plugin, viewport/UA/locale randomization, human-like scrolling
 - 3 extraction methods: Next.js JSON → Apollo GraphQL → DOM fallback
-- Activated with `--use-zillow`
-- **Unique import pattern:** `from utils.rate_limiter import rate_limit as _shared_rate_limit`
+- **Unique import pattern:** `from utils.rate_limiter import rate_limit as _shared_rate_limit, report_success as _report_success, report_error as _report_error`
 
-### Redfin Playwright (redfin_playwright.py)
+### Redfin Playwright (redfin_playwright.py) — `--use-redfin`
 
 - Playwright browser fallback for Redfin
 - 2 methods: embedded JSON → DOM fallback
-- Activated with `--use-redfin`
 
-### Craigslist (craigslist_scraper.py)
+### Craigslist (craigslist_scraper.py) — `--use-craigslist`
 
 - HTTPX + BeautifulSoup for FSBO/motivated seller listings
 - Maps 20+ cities via `CL_CITY_MAP`
-- Activated with `--use-craigslist`
+- 3 subcategories: `reo` (FSBO real estate), `rea` (land), `reb` (commercial)
 
 ### Deduplication (utils/dedup.py)
 
@@ -620,11 +684,81 @@ When multiple sources are used, `merge_and_deduplicate()` normalizes addresses a
 
 ---
 
-## 12. FEMA Flood Zone Scraper
+## 12. LoopNet Auth (cookie bundle import)
+
+**File:** `regog/scrapers/loopnet_auth.py` + endpoints in `web/app.py`
+
+### The old vs new flow
+
+**OLD (deprecated):** Playwright login popup, then save the `storage_state` to a file. Fragile, hard to maintain, and broke when Cloudflare protected the auth flow.
+
+**NEW (current, since `00481a6`):** User pastes a semicolon-separated cookie bundle from DevTools → backend parses it → saved to `loopnet_session.json` → scraper sends the cookies on every request.
+
+### Endpoints (in `web/app.py`)
+
+#### `POST /api/loopnet/save-cookie`
+Accepts `{"cookies": "SessionFarm_GUID=...; UserPreferences=...; UserInfo_AssociateID=..."}`. Parses and saves to `loopnet_session.json`.
+
+The parser is `_parse_cookie_bundle(bundle: str) -> dict` and returns:
+```python
+{
+    "cookies":          {name: value, ...},
+    "cookie_string":    "name1=value1; name2=value2; ...",   # rebuilt, normalized
+    "saved_at":         "ISO-8601",
+    "missing_expected": ["TDID", "UserPreferences", ...],   # which expected cookies are absent
+    "expected_cookies": ["SessionFarm_GUID", "UserPreferences", "UserInfo_AssociateID"],
+}
+```
+
+Validation: raises `ValueError` on empty bundle, missing `=`, empty name/value, etc. The endpoint passes `data.get("cookies") or ""` to the parser — an empty string is handled correctly via `if not bundle or not bundle.strip()`.
+
+#### `GET /api/loopnet/session/status`
+Returns whether the file exists, age in minutes, cookie count, and missing expected cookies. **Guarded against old `storage_state` format** via `isinstance(_cookies, dict)` check.
+
+### Expected cookies (3, not 5)
+
+```python
+EXPECTED_LOOPNET_COOKIES = [
+    "SessionFarm_GUID",
+    "UserPreferences",
+    "UserInfo_AssociateID",
+]
+# TDID and TDCPM (Trade Desk / ad-tracking) intentionally EXCLUDED.
+# Browsers are phasing them out and they aren't needed for LoopNet auth.
+# Surfaced back to the UI so the user knows when their DevTools export was incomplete.
+```
+
+### UI flow (in `web/static/index.html`)
+
+1. User logs into LoopNet in their browser
+2. Opens DevTools → Application → Cookies → loopnet.com
+3. Copies the 3 expected cookies as `name=value; name=value; ...`
+4. Pastes into the LoopNet cookie bar in the REGOG UI
+5. `saveLoopnetCookie()` (JS function) POSTs to `/api/loopnet/save-cookie`
+6. The dot indicator refreshes via `refreshLoopnetSessionDot()` (also shows cookie count)
+
+### Scraper use (loopnet_auth.py)
+
+`_load_session() -> dict` reads `loopnet_session.json`. `_session_to_cookies() -> list[dict]` converts to Playwright's `add_cookies` format.
+
+In the LoopNet scraper:
+```python
+context = await browser.new_context(...)
+await context.set_extra_http_headers({"Cookie": cookie_string})  # for HTTP requests
+await context.add_cookies(cookie_list)                           # for document.cookie
+```
+
+### Storage file
+
+`/workspaces/regogv8/loopnet_session.json` — **UNTRACKED in git** (in `.gitignore`). Contains real/test cookies. Never commit. Will be regenerated each time the user pastes a fresh bundle.
+
+---
+
+## 13. FEMA Flood Zone Scraper
 
 **File:** `regog/scrapers/fema_scraper.py`
 
-### get_flood_zone(lat, lon) → str | None
+### `get_flood_zone(lat, lon) → str | None`
 
 **Endpoint:** `https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query`
 
@@ -636,17 +770,17 @@ When multiple sources are used, `merge_and_deduplicate()` normalizes addresses a
 - 2 retries with 1s backoff
 - Returns zone code: `X` (minimal risk), `AE`/`A` (high risk), `VE` (coastal extreme), or `"UNKNOWN"`
 
-**KNOWN PROBLEM (FIXED):** The original NFHL API used a different JSON geometry format that caused all queries to fail. Rewritten with the simpler `esriGeometryPoint` format. Also, `FLOOD_SCORES[None]` was changed from 8 to 0 — the old default unfairly penalized every property 8 points when flood data was missing.
+**KNOWN PROBLEM (FIXED):** The original NFHL API used a different JSON geometry format that caused all queries to fail. Rewritten with the simpler `esriGeometryPoint` format. Also, `FLOOD_SCORES[None]` was changed from 8 to 0 — see §28.
 
 ---
 
-## 13. Brain Classifier (keyword-based, no LLM)
+## 14. Brain Classifier (keyword-based, no LLM)
 
 **File:** `regog/enrichment/brain.py`
 
-### classify_property(address, scan_type, list_price, sqft, year_built, days_on_market, description) → dict
+### `classify_property(address, scan_type, list_price, sqft, year_built, days_on_market, description) → dict`
 
-**Classification priority order:** fire_damage > teardown > distressed > vacant > luxury > standard > land_only
+**Classification priority order:** `fire_damage > teardown > distressed > vacant > luxury > standard > land_only`
 
 **Returns:**
 ```python
@@ -667,7 +801,7 @@ If `scan_type == "land"`, classification is forced to `"land_only"`.
 
 ---
 
-## 14. Listing Filter
+## 15. Listing Filter
 
 **File:** `regog/enrichment/listing_filter.py`
 
@@ -683,22 +817,22 @@ Returns: `{"action": "skip" | "flag", "reason": "...", "filter_type": "auction"|
 
 ---
 
-## 15. Acreage Enricher
+## 16. Acreage Enricher
 
-**File:** `regog/enrichment/acreage_enricher.py` (added in Part 1 fix)
+**File:** `regog/enrichment/acreage_enricher.py` (added in Part 1 fix of V5)
 
 Fills missing acreage from 4 fallback sources:
 
-1. Compute from `lot_sqft` / 43560
+1. Compute from `lot_sqft / 43560`
 2. Parse from `listing_description` via regex: `"1.5 acres"`, `"0.25 AC"`, `"43,560 sq ft"`
 3. Parse from title/address text
 4. Estimate from price-based heuristic (for land-only listings)
 
-When acreage is estimated (not measured), sets `acres_estimated = True` and the land scoring applies a **30% penalty** to the price-per-acre deviation.
+When acreage is **estimated** (not measured), sets `acres_estimated = True` and the land scoring applies a **30% penalty** to the price-per-acre deviation.
 
 ---
 
-## 16. Comp Engine (2D Expansion Search)
+## 17. Comp Engine (2D Expansion Search)
 
 **File:** `regog/enrichment/comp_engine.py` — THE CORE DEAL-FINDING LOGIC
 
@@ -778,14 +912,14 @@ price_deviation_pct = ((target_price - comp_median) / comp_median) * 100
 
 ---
 
-## 17. Scoring Modules
+## 18. Scoring Modules
 
 ### Residential Score (residential_score.py)
 
 **6 components + 3 post-processing steps:**
 
 **Components:**
-1. **price_deviation** (40 pts max): Percentile-band scoring
+1. **price_deviation** (40 pts max): Percentile-band scoring (Part 2 fix)
    - ≤-60% → 40, ≤-50% → 36, ≤-40% → 32, ≤-30% → 26, ≤-20% → 20, ≤-10% → 13, ≤-5% → 7, ≤0 → 3, ≤+10% → 0, >+10% → -5
    - LOW confidence → ×0.5, MEDIUM → ×0.75
 
@@ -806,28 +940,42 @@ price_deviation_pct = ((target_price - comp_median) / comp_median) * 100
 
 **Tier:** ≥100=HOT, ≥50=MEDIUM, ≥0=WARM, <0=SKIP
 
+NOTE: No `DISTRESSED_` prefix on tiers. Removed in Part 3 fix.
+
+**Score-component → DB-column mapping for UI display (in `web/app.py`'s `_run_scan_background`):**
+
+The `score_*` columns on the `properties` table are the same names across scan types, but the underlying scoring function returns scan-type-specific keys. The web app maps them for UI display:
+
+```python
+if scan_type == "land":
+    prop["score_price_deviation"] = scores.get("price_deviation",
+        scores.get("price_per_acre_deviation", 0))
+    prop["score_assessor_gap"] = scores.get("assessor_gap",
+        scores.get("zoning_bonus", 0))
+    prop["score_condition"] = scores.get("condition",
+        scores.get("acreage_premium", 0))
+else:
+    prop["score_price_deviation"] = scores.get("price_deviation", 0)
+    prop["score_assessor_gap"] = scores.get("assessor_gap", 0)
+    prop["score_condition"] = scores.get("condition", 0)
+```
+
 ### Land Score (land_score.py)
 
 **7 components:**
 1. **price_per_acre_deviation** (40 pts): Same percentile bands as residential, but against $/acre
-   - If acres=NULL/0: returns 0 (DO NOT use total price as proxy)
+   - If acres=NULL/0: returns 0 (DO NOT use total price as proxy — was a bug, now fixed)
    - If comps are significantly different size (<50% or >200% of target): 50% reduction
    - If acres_estimated: 30% penalty
 
 2. **zoning_bonus** (20 pts): Buildable=20, Non-buildable=2, Unknown=10
+3. **road_access_bonus** (10 pts): From brain_green_flags
+4. **utilities_bonus** (10 pts): From brain_green_flags
+5. **acreage_premium** (10 pts): ≤1ac=10, ≤5ac=8, ≤10ac=6, ≤40ac=4, >40ac=2
+6. **flood_penalty** (0-10): Same as residential
+7. **(Plus redistributed signals when acres=NULL to keep total <70)**
 
-3. **assessor_gap** (20 pts): Uses PPA heuristic if no assessed_value:
-   - $/acre < $5K → 12, <$15K → 8, <$30K → 4, else 0
-
-4. **road_access_bonus** (10 pts): From brain_green_flags
-
-5. **utilities_bonus** (10 pts): From brain_green_flags
-
-6. **acreage_premium** (10 pts): ≤1ac=10, ≤5ac=8, ≤10ac=6, ≤40ac=4, >40ac=2
-
-7. **flood_penalty** (0-10): Same as residential
-
-**Fallback when acres=NULL:** Redistributes weight, caps below HOT, data_confidence=LOW
+**Fallback when acres=NULL:** Redistributes weight, caps below HOT, `data_confidence=LOW`.
 
 ### Commercial Score (commercial_score.py)
 
@@ -853,43 +1001,57 @@ MARKET_RENTS_PSF = {
 
 Calculates: monthly_gross = sqft × rent_psf, applies 10% vacancy, 40% expense ratio → NOI → cap_rate = NOI/price
 
+Result stored in `prop["cap_rate_data"]`:
+```python
+{
+    "estimated_cap_rate": float,  # %
+    "estimated_noi": float,       # $/yr
+    "estimated_grm": float,       # x
+    "rent_psf_used": float,
+}
+```
+
 ---
 
-## 18. Scoring Utilities
+## 19. Scoring Utilities
 
 **File:** `regog/scoring/utils.py`
 
-### assign_tier(score) → str
-Looks up score in TIER_THRESHOLDS (sorted descending).
+### `assign_tier(score) → str`
+Looks up score in `TIER_THRESHOLDS` (sorted descending).
 
-### parse_flags(flags_value) → list
+### `parse_flags(flags_value) → list`
 Parses JSON string or list — handles both DB (JSON string) and in-memory (Python list) formats.
 
-### score_price_deviation(list_price, comp_median, comp_confidence) → float
+### `score_price_deviation(list_price, comp_median, comp_confidence) → float`
 Percentile-band scoring from -10 to 40.
 
-### apply_comp_fallback(property_dict, scores) → dict
-When comp_count=0:
-- If estimated_value exists: uses as proxy for price deviation
+### `apply_comp_fallback(property_dict, scores) → dict`
+When `comp_count == 0`:
+- If `estimated_value` exists: uses `((list_price - estimated) / estimated) * 100` as proxy deviation
 - If no estimated_value: sets `_fb_cap_at_risky = True`
 - **CRITICAL:** Uses `_fb_` prefix for metadata keys — these MUST be filtered out when summing
 
-### apply_confidence_cap(property_dict, scores) → dict
-- LOW: caps price deviation at 10
-- MEDIUM: caps at 20
+### `apply_confidence_cap(property_dict, scores) → dict`
+- LOW confidence: caps price_deviation/price_per_acre_deviation at 10
+- MEDIUM confidence: caps at 20
 
-### apply_variance_penalty(property_dict, scores) → dict
-comps < 5 + variance_high → 25% reduction on price signals
+### `apply_variance_penalty(property_dict, scores) → dict`
+comps < 5 + `comp_variance_high` → 25% reduction on price signals
 
-### cap_score_if_no_comps(total, scores) → (float, str | None)
+### `cap_score_if_no_comps(total, scores) → (float, str | None)`
 When `_fb_cap_at_risky` is set, max total = 30 (below MEDIUM threshold)
 
-### get_score_completeness(property_dict) → dict
-Returns factors_with_data / total_factors for UI badge
+### `get_score_completeness(property_dict) → dict`
+Returns factors_with_data / total_factors for UI badge (Part 7):
+- `completeness_pct`: int (0-100)
+- `missing_factors`: list[str]
+- `badge`: "COMPLETE" | "PARTIAL" | "LIMITED DATA"
+- `badge_color`: "green" | "yellow" | "red"
 
 ---
 
-## 19. Web App Backend (Flask + SSE)
+## 20. Web App Backend (Flask + SSE)
 
 **File:** `web/app.py`
 
@@ -897,19 +1059,21 @@ Returns factors_with_data / total_factors for UI badge
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/` | GET | Serves index.html |
+| `/` | GET | Serves `index.html` |
 | `/api/config` | GET | Weights, thresholds, comp defaults |
 | `/api/stats` | GET | DB aggregate stats |
 | `/api/scans` | GET | Recent 20 scan sessions |
 | `/api/scan` | POST | Start a new scan → `{session_id, stream_url}` |
 | `/api/scan/<id>/results` | GET | Paginated results |
-| `/api/scan/<id>/status` | GET | Current scan status (for polling) |
+| `/api/scan/<id>/status` | GET | Current scan status (for polling after SSE closes) |
 | `/api/scan/<id>/cancel` | POST | Set cancel event for running scan |
 | `/api/scan/<id>/stream` | GET | SSE endpoint streaming properties |
 | `/api/saved` | GET | List saved properties |
 | `/api/saved/<listing_id>` | POST | Toggle save/unsave |
 | `/api/saved/<listing_id>/status` | GET | Check if saved |
 | `/api/property/<listing_id>` | GET | Single property detail |
+| `/api/loopnet/save-cookie` | POST | Save LoopNet cookie bundle (see §12) |
+| `/api/loopnet/session/status` | GET | LoopNet session status |
 
 ### SSE Events (in order)
 1. `event: connected\ndata: {session_id}\n\n`
@@ -924,13 +1088,14 @@ Returns factors_with_data / total_factors for UI badge
 - SSE queue pushes each property as it's scored
 - Cancel event checked every iteration
 - `filtered_out` counter tracked in status
+- For land: maps `price_per_acre_deviation` → `score_price_deviation` for UI display
 
 ### Lava Search Mode
 
 The web app has TWO scan paths:
 
 1. **Normal path** (`_run_scan_background`): Standard pipeline with optional lava filter
-2. **Nationwide lava path** (`_run_nationwide_lava_scan`): Cycles through TOP_20_METROS, only emits lava-quality deals
+2. **Nationwide lava path** (`_run_nationwide_lava_scan`): Cycles through TOP_20_METROS, only emits lava-quality deals (comp_median / list_price ≥ 2.0)
 
 ### TOP_20_METROS
 
@@ -945,11 +1110,28 @@ TOP_20_METROS = [
 ]
 ```
 
-When lava_state is set, metros are filtered: `[c for c in TOP_20_METROS if c.endswith(f", {lava_state}")]`
+When `lava_state` is set, metros are filtered: `[c for c in TOP_20_METROS if c.endswith(f", {lava_state}")]`
+
+### Flip Radar Mode (since V7)
+
+A separate scan type `"flip"` with its own pipeline (`_run_flip_scan` in `web/app.py`):
+- Distress scoring (DISTRESS_HIGH / MEDIUM / LOW keyword tiers, 3/2/1 pts per match)
+- ARV / repair / max-offer / profit / ROI / deal grade computation
+- Tier mapped to REGOG lead_tier: `LAVA` / `HOT` / `WARM` / `NEUTRAL` / `SKIP`
+- Property-type dropdown: single_family, multi_family, condos, commercial, townhomes, hotel, rv_park, mixed_use, all
+- Each selection maps to its own listing source(s) (Realtor / Zillow / LoopNet) — see `_flip_property_types()` in `web/app.py`
+
+### Logging
+
+`logging.basicConfig(level=logging.DEBUG, force=True, ...)` — `force=True` was added (Part: error logging invisible in Flask fix) so the web app's logging isn't swallowed by Flask's defaults. All errors include full tracebacks via `logger.error(traceback.format_exc())`.
+
+### Flask Debug Mode
+
+`web/app.py`'s `__main__` runs Flask on port 5000 in debug mode. `serve_report.py` runs on port 8080 in non-debug mode with threading. **Always use `serve_report.py` in production — debug=False avoids the reloader child being killed by pkill -f.**
 
 ---
 
-## 20. Web Frontend (Single-Page HTML)
+## 21. Web Frontend (Single-Page HTML)
 
 **File:** `web/static/index.html`
 
@@ -968,7 +1150,7 @@ Single HTML file with ALL CSS + JS inline. Dark theme with REGOG styling.
 --radius: 12px;           --radius-sm: 8px;
 ```
 
-### UI Layout (stacked mode boxes — v7 redesign)
+### UI Layout (stacked mode boxes)
 
 ```
 ┌────────────────────────────────────────────────────┐
@@ -1003,6 +1185,8 @@ Single HTML file with ALL CSS + JS inline. Dark theme with REGOG styling.
 | `filterTier(tier)` | Filter by HOT/WARM/ALL |
 | `setSort(mode)` | Re-sort by price/profit/score |
 | `getListingUrl(prop)` | Build URL: Realtor.com > Zillow > Google Maps |
+| `saveLoopnetCookie()` | POSTs cookie bundle to `/api/loopnet/save-cookie` |
+| `refreshLoopnetSessionDot()` | Refreshes LoopNet session indicator + cookie count |
 
 ### Property Card
 
@@ -1012,6 +1196,7 @@ Single HTML file with ALL CSS + JS inline. Dark theme with REGOG styling.
 - **Card row:** Price, Lava Profit%, vs Median%, DOM, Beds/Baths, Stories, Sqft, Comps
 - **Flags:** Brain classification, filter flags, red/green flag pills
 - **Expanded detail:** Full grid, lava banner, segmented score bar, brain output, comp listings
+- **Score completeness badge** (Part 7): COMPLETE / PARTIAL / LIMITED DATA
 
 ### Comp Cards (horizontal scroll)
 
@@ -1019,7 +1204,7 @@ Each comp card shows: thumbnail, address (35 char max), price (green), beds/bath
 
 ---
 
-## 21. CLI (main.py)
+## 22. CLI (main.py)
 
 ### Commands
 
@@ -1038,11 +1223,27 @@ regog schedule --location "Los Angeles, CA" --interval 24
 
 `--location`, `--price-min/--price-max`, `--radius`, `--skip-flood`, `--use-zillow`, `--use-redfin`, `--use-craigslist`, `--past-days`, `--limit`
 
+### Pipeline (same as web app)
+
+1. Resolve location (see §25 location_resolver)
+2. Fetch sold comps (dynamic pool)
+3. Fetch active listings
+4. Optionally fetch secondary sources
+5. For each property: normalize → brain → filter → enrich → comps → score → upsert
+6. Show results in Rich terminal table
+
+### Detailed output
+
+`_print_property_details(properties)` shows top 10 HOT/WARM:
+- Cap rate (commercial)
+- Score completeness (badge + missing factors)
+- Acreage warning for land (estimated vs measured)
+
 ---
 
-## 22. Lava Search Mode
+## 23. Lava Search Mode
 
-**Lava Search** is a special scan mode that only surfaces extreme deals — properties where the comp median is at least 200% of list price (hardcoded minimum).
+**Lava Search** is a special scan mode that only surfaces extreme deals — properties where the comp median is at least 200% of list price (the **default** threshold; user-adjustable via the `lava_min_profit` slider in the web UI). The filter is `comp_median / list_price >= (lava_min_profit / 100.0)`.
 
 ### How it works
 
@@ -1053,119 +1254,284 @@ regog schedule --location "Los Angeles, CA" --interval 24
 5. Only lava-quality deals are emitted via SSE
 6. Properties tagged with `lava_profit_pct`, `lava_profit_ratio`, `lava_city`
 
-### Lava Filter in Background Scan
+### Lava Filter
 
-The normal scan path also has a lava filter:
 ```python
 if lava_mode:
     comp_median = prop.get("comp_median_price") or 0
     list_price = prop.get("list_price") or 0
     if comp_median > 0 and list_price > 0:
         profit_ratio = comp_median / list_price
+        min_ratio = lava_min_profit / 100.0
         prop["lava_profit_pct"] = round((profit_ratio - 1.0) * 100, 1)
         prop["lava_profit_ratio"] = round(profit_ratio, 2)
-        if profit_ratio < (lava_min_profit / 100.0):
+        if profit_ratio < min_ratio:
             continue  # Skip — not lava quality
+    else:
+        continue  # No comp data — skip
 ```
 
 ---
 
-## 23. Mode Separation (Regular vs Lava)
+## 24. Flip Radar Mode
 
-The scan bar has two `.mode-box` sections stacked vertically:
+A separate scan pipeline (`_run_flip_scan` in `web/app.py`). Distress-scored properties with ARV/rehab/profit/ROI analysis.
 
-- **📋 Regular Scan box** — city/state, min price, max price, its own SCAN button
-- **🔥 Lava Scan box** — state dropdown, its own LAVA SCAN button
-- **Category dropdown** shared at the top (works for both modes)
+### Distress Scoring
 
-**Mutual exclusion via `toggleMode()`:** Toggles `.mode-disabled` class on the `.mode-box` element of the other mode. Disabled box has `opacity: 0.25`, `filter: grayscale(0.8)`, `pointer-events: none`.
+```python
+DISTRESS_HIGH = ["as-is", "needs work", "fixer", "cash only", "handyman special",
+                 "tear down", "fire damage", "flood damage", "foundation", ...]
+DISTRESS_MEDIUM = ["estate sale", "motivated seller", "price reduced", "below market",
+                   "tlc", "updating needed", "cosmetic", "original condition", ...]
+DISTRESS_LOW = ["sold as is", "older home", "bring offers", "priced to sell", "make offer"]
 
-**CRITICAL FIX:** The `.mode-box-header` has `pointer-events: auto !important` override so checkboxes stay clickable even inside a disabled box.
+def score_distress(text: str) -> tuple[int, list[str]]:
+    # 3 pts per HIGH match, 2 per MEDIUM, 1 per LOW
+    ...
+```
+
+Properties with distress_score < 2 are filtered out.
+
+### Repair Cost Estimation
+
+```python
+def estimate_repair_cost(distress_score: int, sqft: int | None) -> tuple[int, str]:
+    if distress_score >= 8: cost_per_sqft, tier, flat_fallback = 45, "heavy", 85000
+    elif distress_score >= 5: cost_per_sqft, tier, flat_fallback = 28, "medium", 45000
+    else: cost_per_sqft, tier, flat_fallback = 15, "light", 20000
+    if sqft and sqft > 0:
+        return int(cost_per_sqft * sqft), tier
+    return flat_fallback, tier
+```
+
+### Flip Metrics
+
+```python
+def compute_flip_metrics(prop: dict) -> dict:
+    arv = prop.get("comp_median_price") or 0
+    list_price = prop.get("list_price") or 0
+    sqft = prop.get("sqft")
+    distress_score = prop.get("flip_distress_score") or 0
+
+    repair_cost, rehab_tier = estimate_repair_cost(distress_score, sqft)
+    max_offer = int(arv * 0.70) - repair_cost
+    projected_profit = arv - list_price - repair_cost
+    total_investment = list_price + repair_cost
+    roi_pct = (projected_profit / total_investment) * 100.0 if total_investment > 0 else 0.0
+
+    if projected_profit >= 50000 and roi_pct >= 20: deal_grade = "A"
+    elif projected_profit >= 25000 and roi_pct >= 15: deal_grade = "B"
+    elif projected_profit >= 10000 and roi_pct >= 10: deal_grade = "C"
+    else: deal_grade = "D"
+    ...
+```
+
+### Flip Tier Mapping
+
+```python
+def _flip_tier(prop: dict) -> str:
+    profit = prop.get("flip_projected_profit") or 0
+    roi = prop.get("flip_roi_pct") or 0
+    grade = prop.get("flip_deal_grade") or "D"
+    if profit <= 0: return "SKIP"
+    if grade == "A" and roi >= 40: return "LAVA"
+    if grade == "A" or (grade == "B" and roi >= 25): return "HOT"
+    if grade in ("B", "C"): return "WARM"
+    return "NEUTRAL"
+```
+
+### Property Type Routing
+
+`_flip_property_types(selection)` maps the FLIP RADAR dropdown to listing sources:
+- `single_family` → Realtor (single_family, mobile)
+- `multi_family` → Realtor (multi_family, duplex_triplex) — **excludes condos**
+- `condos` → Realtor (condos, apartment) — **own category, doesn't leak**
+- `commercial` → Realtor (townhomes, farm) — **excludes multi-family/condos**
+- `townhomes` → Realtor (townhomes)
+- `hotel` → Zillow (LoopNet is Cloudflare-blocked)
+- `rv_park` → Zillow (Zillow carries RV/mobile/manufactured)
+- `mixed_use` → LoopNet-only
+- `all` → merge from all three sources
 
 ---
 
-## 24. Utility Modules
+## 25. Utility Modules
 
-### Density (utils/density.py)
+### Density (`utils/density.py`)
 ZIP prefix → urban/suburban/rural. Static lookup for 150+ urban prefixes (major metro cores) and 200+ rural prefixes (MT, WY, ID, SD, ND, NV, WV, MS, NM, IA, AK, HI).
 
-### Property Type (utils/property_type.py)
+### Property Type (`utils/property_type.py`)
 Style string → 'residential'|'land'|'commercial'. High-rise detection: CONDO with ≥5 stories → commercial.
 
-### Rate Limiter (utils/rate_limiter.py)
+### Rate Limiter (`utils/rate_limiter.py`)
 Per-source throttling: min delay, hourly cap, random jitter, exponential backoff on errors.
 
-### Config Store (utils/config_store.py)
+### Config Store (`utils/config_store.py`)
 Persistent JSON config overrides (`regog_config.json` next to DB).
 
-### Dedup (utils/dedup.py)
+### Dedup (`utils/dedup.py`)
 Address-normalized deduplication for merging multiple scraper sources.
 
-### Location Resolver (utils/location_resolver.py)
+### Location Resolver (`utils/location_resolver.py`)
 **CRITICAL:** Converts colloquial terms ("South Georgia", "North GA", "NorCal") to valid "City, ST" search strings. Resolves state names → anchor cities. HomeHarvest TIMES OUT on bare state queries like "Georgia".
+
+```python
+from utils.location_resolver import resolve_with_details as _resolve_loc
+loc_info = _resolve_loc(args.location)
+search_location = loc_info["resolved"]
+# loc_info = {"original", "resolved", "changed": bool, "method": str}
+```
+
+If the resolved location differs, the new location is persisted into the scan session's `search_params` JSON for traceability.
 
 ---
 
-## 25. Tests
+## 26. Tests
 
-**98 tests total.** Run with: `cd /workspaces/REgog && python -m pytest tests/ -v --tb=short`
+**98 tests total.** Run with:
+```bash
+cd /workspaces/regogv8
+pytest -q
+```
 
 ### Test Files
 
-- **test_residential_score.py** — 50+ tests: 6 signals, tiers, edge cases, boundary conditions, data types
-- **test_land_score.py** — Land scoring (zoning, acreage premium, empty dict)
-- **test_scoring_fallback.py** — `_fb_` metadata filter fix (comp_count=0 + estimated_value paths)
-- **test_utils.py** — Tier thresholds, boundary tests, parse_flags (list/JSON/None/invalid)
-- **test_permit_scraper.py** — Permit inference (unpermitted, code violations, mixed signals)
+- **`test_residential_score.py`** — 50+ tests: 6 signals, tiers, edge cases, boundary conditions, data types
+- **`test_land_score.py`** — Land scoring (zoning, acreage premium, empty dict, estimated acreage penalty)
+- **`test_scoring_fallback.py`** — `_fb_` metadata filter fix (comp_count=0 + estimated_value paths)
+- **`test_utils.py`** — Tier thresholds, boundary tests, parse_flags (list/JSON/None/invalid), get_score_completeness
+- **`test_permit_scraper.py`** — Permit inference (unpermitted, code violations, mixed signals)
 
-### Fixtures (conftest.py)
+### Fixtures (`conftest.py`)
+
 - `standard_residential`: Baseline with all fields
-- `hot_deal_residential`: Deep discount (-60%), large assessor gap, low permit risk
+- `hot_deal_residential`: Deep discount (-60%), large assessor gap, low permit risk. Must score >= 100 for HOT tier.
 - `skip_residential`: Overpriced (+15%), high flood risk, high permit risk
 - `missing_data_residential`: All None values
 - `distressed_residential`: Fire damage classification
 
+### Known test gap
+
+- No test coverage for Lava Search mode
+- No test coverage for Flip Radar mode
+- No test for `comp_count=0` + `estimated_value` path that triggered the original `_fb_` filter crash (now fixed but no regression test)
+
 ---
 
-## 26. ALL KNOWN PROBLEMS & HOW THEY WERE FIXED
+## 27. Operational: Codespace Idle-Kill + Keepalive
+
+### The problem
+
+**Symptom:** The Flask server (started with `python3 serve_report.py`, running on port 8080) keeps going offline. The log at `/tmp/regog-app.log` shows it WAS running and successfully serving requests (5+ HTTP 200s visible) — but then it dies. Subsequent curl checks return HTTP 000 (connection refused, exit code 7). The log just **stops with no Python traceback**.
+
+**Root cause:** **Codespace idle-kill.** After ~20 minutes of inactivity, the container reaps the process. The log stopping with no error is the signature of an external kill, not a Python exception.
+
+### The fix: `scripts/regog_keepalive.sh`
+
+A `while true` restart-loop wrapper that makes the app self-healing regardless of cause.
+
+```bash
+#!/usr/bin/env bash
+# regog_keepalive.sh — auto-restart the REGOG Flask app on any death.
+# Solves the codespace-idle-kill problem: after ~20 min of inactivity the
+# container reaps the process, the log just stops, and curl returns 000.
+
+cd /workspaces/regogv8 || { echo "fatal: project dir not found" >&2; exit 1; }
+echo $$ > /tmp/regog-keepalive.pid
+while true; do
+    python3 serve_report.py &
+    CHILD_PID=$!
+    wait $CHILD_PID
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "[keepalive $(date -Is)] serve_report.py exited cleanly — not restarting" >> /tmp/regog-app.log
+        break
+    fi
+    echo "[keepalive $(date -Is)] serve_report.py exited with code $EXIT_CODE — restarting in 2s" >> /tmp/regog-app.log
+    sleep 2
+done
+```
+
+### Known bug in the keepalive (follow-up)
+
+The script does **NOT** install a `trap 'kill $CHILD_PID 2>/dev/null' EXIT` to forward signals. So `pkill -f regog_keepalive.sh` alone leaves `serve_report.py` orphaned (reparented to PID 1 and still running).
+
+**Stop commands (always BOTH):**
+```bash
+pkill -f regog_keepalive.sh
+pkill -f serve_report.py
+```
+
+**Better long-term fix:** add `trap 'kill $CHILD_PID 2>/dev/null' EXIT` to the keepalive script, then a single `pkill -f regog_keepalive.sh` will cleanly stop both. Worth a follow-up commit.
+
+### How to start the keepalive (user's local terminal ONLY)
+
+```bash
+cd /workspaces/regogv8
+nohup bash scripts/regog_keepalive.sh > /tmp/regog-app.log 2>&1 < /dev/null & disown
+sleep 5
+curl -s -o /dev/null -w 'HTTP %{http_code}\n' http://localhost:8080/  # expect: 200
+pgrep -f regog_keepalive   # non-empty = loop alive
+```
+
+### Why this can't be started from inside an AI agent's tool calls
+
+The AI agent's "basher" subshell reaps every detached background process on exit. Multiple detach patterns were tried in the previous session — `setsid`, `nohup`, `disown`, Python double-fork — and none survived past the 7-second poll window. The keepalive is correct; it has to be started by the user directly in their terminal.
+
+### Verify the app is up (no restart, just check)
+
+```bash
+pgrep -f regog_keepalive   # non-empty = loop alive
+pgrep -f serve_report      # non-empty = server alive
+curl -s -o /dev/null -w 'HTTP %{http_code}\n' --max-time 3 http://localhost:8080/
+```
+
+If `pgrep` shows the keepalive but `curl` fails → check `/tmp/regog-app.log` for the crash reason.
+If `pgrep` is empty → the keepalive isn't running. Start it manually (see above).
+If `HTTP 200` but process is gone within 30 seconds → codespace-idle-kill, re-read this section.
+
+---
+
+## 28. ALL KNOWN PROBLEMS & HOW THEY WERE FIXED
 
 This section catalogs every significant bug or issue encountered during development, with the root cause and the fix applied.
 
 ### 🔴 CRITICAL BUGS (Fixed)
 
-| # | Problem | Root Cause | Fix Applied | Version |
-|---|---------|-----------|-------------|---------|
-| 1 | **Dual database files** | Relative `DB_PATH = "regog.db"` resolved differently for CLI vs web app | Absolute path: `str(Path(__file__).parent.parent / "regog.db")` | V4 |
-| 2 | **Zero results in web app** | Web app's DB missing schema columns (`style`, `property_url`) — all `upsert_property()` calls silently failed | Added `init_db()` to `serve_report.py` startup | V4 |
-| 3 | **`sum(scores.values())` TypeError** | `apply_comp_fallback()` added string `_fb_source` key to scores dict, then residential/commercial scorers crashed on `sum()` | Changed to `sum(v for k,v in scores.items() if not k.startswith("_fb_"))` | V5 |
-| 4 | **FEMA flood zone always returning UNKNOWN** | Used wrong geometry format in ArcGIS query (JSON geometry instead of `esriGeometryPoint`) | Rewrote with simple `geometry={lon},{lat}` + `geometryType=esriGeometryPoint` | V5 |
-| 5 | **FEMA penalty unfairly tanking all scores** | `FLOOD_SCORES[None] = 8` penalized every property 8 points when flood data was missing | Changed to `FLOOD_SCORES[None] = 0` — never penalize for missing data | V5 |
-| 6 | **DISTRESSED_ tier prefix corruption** | Tier labels concatenated brain classification with tier name: `"DISTRESSED_" + tier` → corrupted 102 records | Removed concatenation. Added DB migration `_fix_corrupted_tiers()`. | V5 |
-| 7 | **Residential price deviation ceiling** | Binary scoring (below/above median) gave max 40 pts to every Manhattan listing | Percentile-band scoring: -60%→40, -50%→36, ..., >10%→-5 | V5 |
-| 8 | **Land scoring flatlining at 76.0** | No per-acre deviation scoring, automatic bonuses creating artificial floor | Added `score_price_per_acre_deviation()`, `score_land_assessor_gap()` with PPA heuristic | V5 |
-| 9 | **Commercial cap rate was dead code** | `_estimate_cap_rate()` returned 0 for all properties | GRM-based estimator with market rent estimates per state/style | V5 |
-| 10 | **Land acreage NULL for most parcels** | HomeHarvest's acres column is inconsistent for land | Created `acreage_enricher.py` with 4 fallback sources (lot_sqft, description parsing, title parsing, price heuristic) | V5 |
-| 11 | **Mode checkboxes trapped in disabled boxes** | `.mode-box.mode-disabled` set `pointer-events: none` on entire box, including its own checkbox | Added `pointer-events: auto !important` override on `.mode-box-header` | V7 |
+| # | Problem | Root Cause | Fix Applied |
+|---|---------|-----------|-------------|
+| 1 | **Dual database files** | Relative `DB_PATH = "regog.db"` resolved differently for CLI vs web app | Absolute path: `str(Path(__file__).parent.parent / "regog.db")` |
+| 2 | **Zero results in web app** | Web app's DB missing schema columns (`style`, `property_url`) — all `upsert_property()` calls silently failed | Added `init_db()` to `serve_report.py` startup |
+| 3 | **`sum(scores.values())` TypeError** | `apply_comp_fallback()` added string `_fb_source` key to scores dict, then residential/commercial scorers crashed on `sum()` | Changed to `sum(v for k,v in scores.items() if not k.startswith("_fb_"))` |
+| 4 | **FEMA flood zone always returning UNKNOWN** | Used wrong geometry format in ArcGIS query (JSON geometry instead of `esriGeometryPoint`) | Rewrote with simple `geometry={lon},{lat}` + `geometryType=esriGeometryPoint` |
+| 5 | **FEMA penalty unfairly tanking all scores** | `FLOOD_SCORES[None] = 8` penalized every property 8 points when flood data was missing | Changed to `FLOOD_SCORES[None] = 0` — never penalize for missing data |
+| 6 | **DISTRESSED_ tier prefix corruption** | Tier labels concatenated brain classification with tier name: `"DISTRESSED_" + tier` → corrupted 102 records | Removed concatenation. Added DB migration `_fix_corrupted_tiers()`. |
+| 7 | **Residential price deviation ceiling** | Binary scoring (below/above median) gave max 40 pts to every Manhattan listing | Percentile-band scoring: -60%→40, -50%→36, ..., >10%→-5 |
+| 8 | **Land scoring flatlining at 76.0** | No per-acre deviation scoring, automatic bonuses creating artificial floor | Added `score_price_per_acre_deviation()`, `score_land_assessor_gap()` with PPA heuristic |
+| 9 | **Commercial cap rate was dead code** | `_estimate_cap_rate()` returned 0 for all properties | GRM-based estimator with market rent estimates per state/style |
+| 10 | **Land acreage NULL for most parcels** | HomeHarvest's acres column is inconsistent for land | Created `acreage_enricher.py` with 4 fallback sources (lot_sqft, description parsing, title parsing, price heuristic) |
+| 11 | **Mode checkboxes trapped in disabled boxes** | `.mode-box.mode-disabled` set `pointer-events: none` on entire box, including its own checkbox | Added `pointer-events: auto !important` override on `.mode-box-header` |
+| 12 | **LoopNet Playwright login flow broken** | Cloudflare-protected auth popup wouldn't capture storage_state reliably | Replaced with cookie bundle import (semicolon-separated HTTP cookies) |
+| 13 | **Codespace idle-kill** | ~20 min of inactivity reaps the process with no log/error | `scripts/regog_keepalive.sh` while-true restart loop |
 
 ### 🟡 MINOR FIXES (Applied)
 
 | # | Problem | Fix |
 |---|---------|-----|
-| 12 | **Comp scrollbar snapping to edges** | Removed `scroll-snap-type: x mandatory` from comp scroll CSS |
-| 13 | **Error logging invisible in Flask** | Added `force=True` to `logging.basicConfig`, `import traceback`, `logger.error(traceback.format_exc())` |
-| 14 | **Score key name mismatch for land** | `web/app.py` mapped land's `price_per_acre_deviation` → `score_price_deviation` for UI display |
-| 15 | **Lava checkbox unclickable when another mode active** | Same as #11 — checkbox pointer-events override |
-| 16 | **lava_profit_pct column missing from schema** | Added `lava_profit_pct`, `lava_profit_ratio`, `lava_city` columns + migration |
+| 14 | **Comp scrollbar snapping to edges** | Removed `scroll-snap-type: x mandatory` from comp scroll CSS |
+| 15 | **Error logging invisible in Flask** | Added `force=True` to `logging.basicConfig`, `import traceback`, `logger.error(traceback.format_exc())` |
+| 16 | **Score key name mismatch for land** | `web/app.py` maps land's `price_per_acre_deviation` → `score_price_deviation` for UI display |
+| 17 | **Lava checkbox unclickable when another mode active** | Same as #11 — checkbox pointer-events override |
+| 18 | **lava_profit_pct column missing from schema** | Added `lava_profit_pct`, `lava_profit_ratio`, `lava_city` columns + migration |
 
 ---
 
-## 27. Problems That STILL EXIST
-
-These are known issues that have NOT been fully resolved.
+## 29. Problems That STILL EXIST
 
 ### 🟠 DATA QUALITY ISSUES
 
-| # | Problem | Impact | Workaround | 
+| # | Problem | Impact | Workaround |
 |---|---------|--------|------------|
 | 1 | **Sold comps fetched city-wide, not by radius** | HomeHarvest doesn't support coordinate-based queries | Comps fetched for entire city → filtered by distance in comp engine. Sparse areas get fewer comps. |
 | 2 | **`assessed_value` rarely available from HomeHarvest** | `estimated_value` (AVM) used as proxy. Land AVM values are notoriously unreliable. | Assessor gap falls back to PPA heuristic for land. |
@@ -1176,46 +1542,79 @@ These are known issues that have NOT been fully resolved.
 
 ### 🟡 SCORING / UI ISSUES
 
-| # | Problem | Impact | 
+| # | Problem | Impact |
 |---|---------|--------|
 | 7 | **Score distribution skews low for land** | Zero HOT/WARM leads in rural land scans — may be accurate or thresholds too aggressive |
-| 8 | **No `comp_acreage_matched` badge in UI** | User can't tell if comps are acreage-matched or fallback |
-| 9 | **Land score breakdown shows wrong component names in UI** | `score_price_deviation` maps to price per acre, `score_assessor_gap` maps to zoning |
-| 10 | **Dynamic comp pool not used in web app background scan** | Web app still uses `limit=200` instead of `get_comp_pool_size()` |
-| 11 | **`report.html.j2` template lacks completeness badges and cap rates** | Outdated template |
-| 12 | **No test coverage for `comp_count=0` + `estimated_value` path** | Critical edge case only caught in production |
-| 13 | **Test for Lava Search mode** | No tests exist for the lava scan path |
+| 8 | **Land score breakdown shows wrong component names in UI** | `score_price_deviation` maps to price per acre, `score_assessor_gap` maps to zoning |
+| 9 | **No test coverage for `comp_count=0` + `estimated_value` path** | Critical edge case only caught in production |
+| 10 | **No test coverage for Lava Search or Flip Radar modes** | |
+| 11 | **Keepalive script missing signal trap** | `pkill -f regog_keepalive.sh` leaves `serve_report.py` orphaned |
+| 12 | **LoopNet auth requires manual cookie paste** | User must log in to LoopNet, copy cookies, paste back — every time cookies expire |
 
 ### 🔵 ARCHITECTURE GAPS
 
 | # | Problem | Priority |
 |---|---------|----------|
-| 14 | **Single point of failure on HomeHarvest** | If Realtor.com blocks HomeHarvest, the entire app stops working |
-| 15 | **No sold comps for rural areas** | For loose geography scans, sold comp pool is too small (e.g., 24 comps for North Georgia) |
-| 16 | **`fetch_sold_comps_near_coords()` defined twice** | Both return `[]` — dead code that shouldn't be called |
-| 17 | **Stale `fetch_sold_comps()` in homeharvest_scraper.py** | Returns `[]` — the real one is in redfin_scraper.py |
-| 18 | **`geocoder.py` is dead code** | Never called by any pipeline module |
-| 19 | **`requirements.txt` may not exist** | Dependencies listed in REGOG docs only |
+| 13 | **Single point of failure on HomeHarvest** | If Realtor.com blocks HomeHarvest, the entire app stops working |
+| 14 | **No sold comps for rural areas** | For loose geography scans, sold comp pool is too small (e.g., 24 comps for North Georgia) |
+| 15 | **`fetch_sold_comps_near_coords()` defined twice in `redfin_scraper.py`** | Both return `[]` — dead code that shouldn't be called. **Cleanup:** delete both definitions. |
+| 16 | **Stale `fetch_sold_comps()` in `homeharvest_scraper.py`** | Returns `[]` — the real one is in `redfin_scraper.py`. **Cleanup:** delete the stale function. |
+| 17 | **`geocoder.py` is dead code** | Never called by any pipeline module |
+| 18 | **`requirements.txt` does not exist** | Dependencies listed in this doc only (see §4) |
+
+---
+
+## 30. Build Doc References (sibling files)
+
+The repo root contains a number of historical build / debug / analysis docs. **Read them in this order for deep context** (or skip and just use this V6 doc for most needs):
+
+1. **This file** (`REGOG_REBUILD_V6.md`) — current handoff (supersedes #2)
+2. (Older) `REGOG_REBUILD_V6.md` was the previous V6 doc — now replaced by this file
+3. `REGOG_V5_REBUILD.md` — V5-era rebuild guide (pre-scoring-fixes)
+4. `REGOG_V5_FIXES.md` — V5 scoring fix build instructions (Parts 1-7, all complete)
+5. `REGOG_Comprehensive_Analysis_Audit.md` — 3-dev debug session, real scan data
+6. `REGOG_Architecture_Deep_Dive.md` — every data point, scraper method, formula
+7. `REGOG_Scraping_Playbook.md` — production scraping architecture, anti-blocking
+8. `REGOG_V1_Build_Prompt.md` — original V1 build instructions
+9. `REGOG_V4_Build_Prompt.md` — V4 build instructions (pre-keepalive, pre-cookie bundle)
+10. `REGOG_V1_Status.md` — Phase 1-3 completion report
+11. `REGOG_Billings_Scan_Report.md` — 3-category scan verification report (post-fixes)
+12. `REGOG_Analysis_and_Debate.md` — 3-dev pipeline analysis
+13. `REGOG_Scan_Analysis_and_Debate.md` — 3-dev scan verification
+14. `REGOG_V4_Three_Dev_Debug_Analysis.md` — V4 debug analysis
+15. `REGOG_V4_Three_Dev_Zero_Results_Debug_Analysis.md` — zero-results bug analysis
+16. `REGOG_Board_Meeting_Q2_2026.md` — board meeting findings, agreed priorities
+17. `REGOG_COMP_PIPELINE.md` — full comp pipeline technical doc
+
+**Don't bother with:** `REGOG_Deal_Audit.md` doesn't exist (referenced in old docs).
 
 ---
 
 ## Quick Reference: Most Important Commands
 
 ```bash
-# Run tests
-python -m pytest tests/ -v --tb=short
+# Verify environment
+git log -1 --format='%H %s'         # expect: 5f2ca9d ... keepalive ...
+git status --short                   # expect: only ?? loopnet_session.json
+pytest -q                            # expect: 98 passed
 
-# Start web app (port 8080)
-python serve_report.py
+# Static checks
+bash -n scripts/regog_keepalive.sh
+python3 -m py_compile web/app.py regog/scrapers/loopnet_auth.py
 
-# Quick CLI scan (residential)
-python regog/main.py scan residential --location "Dallas, TX" --price-max 400000 --skip-flood --limit 10
+# Start the app (USER'S TERMINAL — not via AI tool calls)
+cd /workspaces/regogv8
+nohup bash scripts/regog_keepalive.sh > /tmp/regog-app.log 2>&1 < /dev/null & disown
 
-# Quick CLI scan (land)
-python regog/main.py scan land --location "Billings, MT" --skip-flood --limit 10
+# Stop the app (ALWAYS BOTH)
+pkill -f regog_keepalive.sh
+pkill -f serve_report.py
+
+# Quick CLI scan
+python3 regog/main.py scan residential --location "Dallas, TX" --price-max 400000 --skip-flood --limit 10
 
 # View HOT leads
-python regog/main.py leads --tier HOT --limit 20
+python3 regog/main.py leads --tier HOT --limit 20
 
 # View DB stats
 python3 -c "from db.database import get_connection, get_stats; conn=get_connection(); print(get_stats(conn)); conn.close()"
@@ -1223,9 +1622,15 @@ python3 -c "from db.database import get_connection, get_stats; conn=get_connecti
 # Test FEMA flood zone
 python3 -c "from scrapers.fema_scraper import get_flood_zone; print(get_flood_zone(32.7767, -96.7970))"
 
-# Check corrupted tiers
-sqlite3 regog.db "SELECT COUNT(*), lead_tier FROM properties WHERE lead_tier LIKE 'DISTRESSED_%' GROUP BY lead_tier"
+# Check corrupted tiers (should be 0)
+sqlite3 regog.db "SELECT COUNT(*) FROM properties WHERE lead_tier LIKE 'DISTRESSED_%'"
 
 # List recent git tags
 git tag -l 'v*' --sort=-version:refname
 ```
+
+---
+
+*REGOG REBUILD V6 — current as of `5f2ca9d`*
+*98 passing tests · SQLite · Flask SSE · Style-filtered comps · Dark UI · LoopNet cookie bundle · Codespace keepalive*
+*All data sources: public, free, no API keys required*
