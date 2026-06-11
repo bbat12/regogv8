@@ -8,10 +8,18 @@
 # Stop:   pkill -f regog_keepalive.sh
 # Logs:   /tmp/regog-app.log
 
-cd /workspaces/regogv8
+cd /workspaces/regogv8 || { echo "fatal: project dir not found" >&2; exit 1; }
 echo $$ > /tmp/regog-keepalive.pid
+# Track the child PID so pkill -f regog_keepalive.sh doesn't orphan serve_report.py.
 while true; do
-    python3 serve_report.py
-    echo "[keepalive $(date -Is)] serve_report.py exited with code $? — restarting in 2s" >> /tmp/regog-app.log
+    python3 serve_report.py &
+    CHILD_PID=$!
+    wait $CHILD_PID
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "[keepalive $(date -Is)] serve_report.py exited cleanly — not restarting" >> /tmp/regog-app.log
+        break
+    fi
+    echo "[keepalive $(date -Is)] serve_report.py exited with code $EXIT_CODE — restarting in 2s" >> /tmp/regog-app.log
     sleep 2
 done
