@@ -1,8 +1,25 @@
 # REGOG REBUILD V6 — Complete From-Scratch Handoff
 
-> **Purpose:** A new CLI agent (Codebuff/Claude) with **ZERO knowledge** of this project must be able to rebuild the entire REGOG application from scratch using this document alone, plus start running scans, fix common issues, and continue development. Every detail, problem, fix, convention, and gotcha is included.
+> # ⚠️ SUPERSEDED — USE V8 INSTEAD ⚠️
 >
-> **Scope:** Captures the state of the project as of `5f2ca9d` (HEAD). Supersedes the previous V6 doc. Includes the LoopNet cookie bundle work and codespace keepalive (both landed in `00481a6` and `5f2ca9d`).
+> **Superseded as of `5f2ca9d` (June 2026) by [`REGOG_REBUILD_V8.md`](REGOG_REBUILD_V8.md).** V6 is no longer the source of truth. A new CLI agent should start from V8, which is more comprehensive and includes:
+>
+> - **Dedicated mission / laws / rules / goals section** (V8 §1)
+> - **Comprehensive keys / cookies / storage files section** (V8 §37)
+> - **Full chronology of fixes and attempted solutions** (V8 §35)
+> - **File-by-file walkthroughs** of every file in the project (V8 §5, §9-§32)
+> - **FLIP RADAR source routing table** (V8 §26)
+> - **Code-component → DB-column mapping for land display** (V8 §21)
+> - **DEPRECATION NOTICE for V5 and V6** (V8 §39)
+> - **Dead-code markers** for `geocoder.py`, duplicate `fetch_sold_comps_near_coords`, stale `fetch_sold_comps` (V8 §36)
+>
+> **V6 is preserved here for historical reference only.** If V6 contradicts V8, V8 wins.
+
+---
+
+> **Purpose (legacy):** A new CLI agent (Codebuff/Claude) with **ZERO knowledge** of this project must be able to rebuild the entire REGOG application from scratch using this document alone, plus start running scans, fix common issues, and continue development. Every detail, problem, fix, convention, and gotcha is included.
+>
+> **Scope (legacy):** Captures the state of the project as of `5f2ca9d` (HEAD). Supersedes the previous V6 doc. Includes the LoopNet cookie bundle work and codespace keepalive (both landed in `00481a6` and `5f2ca9d`).
 
 ---
 
@@ -30,14 +47,15 @@
 20. [Web App Backend (Flask + SSE)](#20-web-app-backend-flask--sse)
 21. [Web Frontend (Single-Page HTML)](#21-web-frontend-single-page-html)
 22. [CLI (main.py)](#22-cli-mainpy)
-23. [Lava Search Mode](#23-lava-search-mode)
-24. [Flip Radar Mode](#24-flip-radar-mode)
-25. [Utility Modules](#25-utility-modules)
-26. [Tests](#26-tests)
-27. [Operational: Codespace Idle-Kill + Keepalive](#27-operational-codespace-idle-kill--keepalive)
-28. [ALL KNOWN PROBLEMS & HOW THEY WERE FIXED](#28-all-known-problems--how-they-were-fixed)
-29. [Problems That STILL EXIST](#29-problems-that-still-exist)
-30. [Build Doc References (sibling files)](#30-build-doc-references-sibling-files)
+23. [Deal Radar Mode](#23-deal-radar-mode)
+24. [Lava Search Mode](#24-lava-search-mode)
+25. [Flip Radar Mode](#25-flip-radar-mode)
+26. [Utility Modules](#26-utility-modules)
+27. [Tests](#27-tests)
+28. [Operational: Codespace Idle-Kill + Keepalive](#28-operational-codespace-idle-kill--keepalive)
+29. [ALL KNOWN PROBLEMS & HOW THEY WERE FIXED](#29-all-known-problems--how-they-were-fixed)
+30. [Problems That STILL EXIST](#30-problems-that-still-exist)
+31. [Build Doc References (sibling files)](#31-build-doc-references-sibling-files)
 
 ---
 
@@ -52,9 +70,10 @@
 5. **Computes comparable sales** using a 2D expansion search (radius × time)
 6. **Scores** each property 0-100+ across 5-6 signals (residential/land/commercial variants)
 7. **Displays** results via a dark-themed Flask web app with real-time SSE streaming, OR a Rich CLI terminal
-8. **Lava Search** — only surfaces extreme deals (200%+ profit ratio)
-9. **Flip Radar** — distress-scored properties with ARV/rehab/profit/ROI analysis
-10. **LoopNet auth** — semicolon-separated cookie bundle import (no Playwright login)
+8. **Deal Radar** 🎯 — default mode (renamed from "Regular Scan" in V7), finds underpriced properties scored against 6 signals (residential/land/commercial)
+9. **Lava Search** 🌋 — only surfaces extreme deals (200%+ profit ratio)
+10. **Flip Radar** 🔨 — distress-scored properties with ARV/rehab/profit/ROI analysis
+11. **LoopNet auth** — semicolon-separated cookie bundle import (no Playwright login)
 
 **Stack:** Python 3.11+ · SQLite · Flask · HomeHarvest · Playwright · Rich · Jinja2
 
@@ -80,7 +99,7 @@
 
 ### App Status
 
-- **App is OFFLINE right now** (HTTP 000, no `serve_report` process running). Must be started from the user's local terminal (see §27 — basher subshell in AI agent environment reaps all detached processes).
+- **App is OFFLINE right now** (HTTP 000, no `serve_report` process running). Must be started from the user's local terminal (see §28 — basher subshell in AI agent environment reaps all detached processes).
 
 ---
 
@@ -1090,14 +1109,17 @@ Returns factors_with_data / total_factors for UI badge (Part 7):
 - `filtered_out` counter tracked in status
 - For land: maps `price_per_acre_deviation` → `score_price_deviation` for UI display
 
-### Lava Search Mode
+### Scan Modes Overview
 
-The web app has TWO scan paths:
+The web app has THREE mutually exclusive scan modes (selected via the stacked mode boxes in the UI — see `web/static/index.html` lines 1183-1280). Only one mode can be active at a time; `toggleMode()` enforces mutual exclusion:
 
-1. **Normal path** (`_run_scan_background`): Standard pipeline with optional lava filter
-2. **Nationwide lava path** (`_run_nationwide_lava_scan`): Cycles through TOP_20_METROS, only emits lava-quality deals (comp_median / list_price ≥ 2.0)
+1. **DEAL RADAR** 🎯 — `_run_scan_background()` with `scan_type ∈ {residential, land, commercial}`, `lava_mode=False`, no flip. **Default** — web app boots into this box pre-checked. See §23.
+2. **LAVA SCAN** 🌋 — `_run_nationwide_lava_scan()` cycles through TOP_20_METROS, OR `_run_scan_background` with `lava_mode=True` (single-city). Emits only deals where `comp_median / list_price >= 2.0` (default 200%, user-adjustable). See §24.
+3. **FLIP RADAR** 🔨 — `_run_flip_scan()` with `scan_type = "flip"`, distress scoring + ARV/rehab/profit/ROI/deal-grade. See §25.
 
 ### TOP_20_METROS
+
+**Used by Lava Search's nationwide path only** (`_run_nationwide_lava_scan`, see §24). DEAL RADAR and FLIP RADAR do not iterate this list — they take a single user-provided location.
 
 ```python
 TOP_20_METROS = [
@@ -1112,7 +1134,7 @@ TOP_20_METROS = [
 
 When `lava_state` is set, metros are filtered: `[c for c in TOP_20_METROS if c.endswith(f", {lava_state}")]`
 
-### Flip Radar Mode (since V7)
+### Flip Radar Mode (since V7) — full details in §25
 
 A separate scan type `"flip"` with its own pipeline (`_run_flip_scan` in `web/app.py`):
 - Distress scoring (DISTRESS_HIGH / MEDIUM / LOW keyword tiers, 3/2/1 pts per match)
@@ -1157,11 +1179,14 @@ Single HTML file with ALL CSS + JS inline. Dark theme with REGOG styling.
 │ Location: [______________]                         │
 │ Category: [Single Family Homes ▼]                  │
 ├────────────────────────────────────────────────────┤
-│ ✓ 📋 Regular Scan  (active)                       │
-│ City/State [________]  $ [____] - [____]  [SCAN]  │
+│ ✓ 🎯 DEAL RADAR  (active, default)                 │
+│ Category [Single Family ▼]  $ [____] - [____] [SCAN]│
 ├────────────────────────────────────────────────────┤
-│ ○ 🔥 Lava Scan     (dimmed when regular active)   │
-│ State: [All States ▼]                [🔥 LAVA SCAN]│
+│ ○ 🌋 LAVA SCAN   (dimmed when DEAL active)         │
+│ State: [All States ▼]              [🌋 LAVA SCAN]  │
+├────────────────────────────────────────────────────┤
+│ ○ 🔨 FLIP RADAR  (dimmed when DEAL active)         │
+│ Type: [All Properties ▼]          [🔨 FLIP SCAN]   │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -1176,8 +1201,8 @@ Single HTML file with ALL CSS + JS inline. Dark theme with REGOG styling.
 
 | Function | Purpose |
 |----------|---------|
-| `toggleMode()` | Mutual exclusion between regular/lava checkboxes |
-| `startScan(mode)` | Takes 'regular' or 'lava', POSTs to `/api/scan` |
+| `toggleMode()` | Mutual exclusion between the THREE mode checkboxes (DEAL / LAVA / FLIP). If all three are unchecked, auto-defaults to DEAL RADAR. |
+| `startScan(mode)` | Takes `'regular'` (DEAL RADAR), `'lava'`, or `'flip'`, POSTs to `/api/scan` |
 | `stopScan()` | Cancels current session, resets both mode's buttons |
 | `addProperty(prop)` | Creates card DOM element, inserts in sort order |
 | `toggleExpand(listingId)` | Toggles detail view |
@@ -1223,14 +1248,16 @@ regog schedule --location "Los Angeles, CA" --interval 24
 
 `--location`, `--price-min/--price-max`, `--radius`, `--skip-flood`, `--use-zillow`, `--use-redfin`, `--use-craigslist`, `--past-days`, `--limit`
 
-### Pipeline (same as web app)
+### Pipeline (same as DEAL RADAR web-app path, see §23)
 
-1. Resolve location (see §25 location_resolver)
+1. Resolve location (see §26 location_resolver)
 2. Fetch sold comps (dynamic pool)
 3. Fetch active listings
 4. Optionally fetch secondary sources
 5. For each property: normalize → brain → filter → enrich → comps → score → upsert
 6. Show results in Rich terminal table
+
+**Note:** The CLI exposes only the **DEAL RADAR** standard pipeline (`residential` / `land` / `commercial`). Lava Search and Flip Radar are web-app only — there's no `regog scan lava` or `regog scan flip` subcommand. (The `scan` subcommand's `scan_type` choices are `["residential", "land", "commercial"]` only — see `regog/main.py` line 61.)
 
 ### Detailed output
 
@@ -1241,7 +1268,69 @@ regog schedule --location "Los Angeles, CA" --interval 24
 
 ---
 
-## 23. Lava Search Mode
+## 23. Deal Radar Mode
+
+**Deal Radar** 🎯 (renamed from "Regular Scan" in V7) is the **default scan mode** — the web app boots with the DEAL RADAR box pre-checked (`regular-mode` checkbox, `checked` attribute in the HTML). It's the bread-and-butter underpriced-property finder: fetch listings → score against 6 signals → tier them HOT/MEDIUM/WARM/SKIP.
+
+### When to use
+
+- "Find underpriced homes in a specific city" (e.g., Dallas under $400K)
+- "Show me all HOT leads in Chicago" — score_total >= 100
+- Any case where you want the full 0-100+ scoring against the standard tier thresholds, with **all** properties emitted (no minimum profit filter, no distress filter)
+
+### How the three modes differ
+
+| Mode | Filter | Pipeline | Use case |
+|------|--------|----------|----------|
+| **DEAL RADAR** 🎯 | None — all scored properties emitted | `_run_scan_background` (single city, full pipeline) | Default — find underpriced properties |
+| **LAVA SCAN** 🌋 | `comp_median / list_price >= 2.0` (default 200%, slider-adjustable) | `_run_nationwide_lava_scan` (cycles TOP_20_METROS) OR `_run_scan_background` with `lava_mode=True` (single city) | Only extreme deals — "I want 100%+ profit" |
+| **FLIP RADAR** 🔨 | `distress_score >= 2` | `_run_flip_scan` (separate scan type `"flip"`) | Distressed properties worth fixing & flipping |
+
+### DEAL RADAR pipeline
+
+Drives `_run_scan_background()` in `web/app.py` with `scan_type ∈ {"residential", "land", "commercial"}`, `lava_mode=False`, `flip_property_type` unused. Same pipeline as §8:
+
+1. **Resolve location** — colloquial ("South GA", "NorCal") → "City, ST" via `utils.location_resolver.resolve_with_details`
+2. **Fetch sold comps** — dynamic pool size via `get_comp_pool_size(listing_count)` (300 base, 0.15× count, capped at 2000)
+3. **Fetch active listings** — HomeHarvest (Realtor.com)
+4. **Optionally** fetch Zillow (`--use-zillow`), Redfin Playwright (`--use-redfin`), Craigslist (`--use-craigslist`) — then dedup via `utils.dedup.merge_and_deduplicate`
+5. **For each listing:** normalize → price-filter → brain-classify → listing-filter (skip auction/bait) → enrich (assessor → FEMA → permits) → calculate comps (2D expansion) → score (residential/land/commercial) → upsert → push to SSE queue
+6. **Complete session** — `complete_scan_session(conn, session_id, processed, hot_count)`
+
+### Parameters (from the 🎯 DEAL RADAR box in the UI)
+
+- **Location** (required) — "City, ST", ZIP, or colloquial term
+- **Category dropdown** — `Single Family Homes` / `Land` / `Commercial` — sets `scan_type`
+- **Min/Max price** — applied per-listing after `normalize_listing()`
+
+### Tier thresholds (DEAL RADAR's output)
+
+```python
+TIER_THRESHOLDS = {"HOT": 100, "MEDIUM": 50, "WARM": 0}  # <0 implicit SKIP
+```
+
+A DEAL RADAR HOT lead needs a score >= 100 (uncapped percentile-band total). Most properties score 0-80, so HOTs are rare and precious. MEDIUM (50-99) and WARM (0-49) are the workhorses.
+
+### Stats shown in the DEAL RADAR results panel
+
+- Total found
+- HOT count
+- MEDIUM count
+- WARM count
+- Avg score
+- Live count (during scan, grows as properties stream in)
+- Filtered-out count (skipped by listing_filter — auctions, bait, etc.)
+
+### Code references
+
+- **`web/static/index.html`** lines 1183-1209 — DEAL RADAR scan box (the source comment `<!-- 🎯 DEAL RADAR Scan Box (was: Regular Scan) -->` documents the rename history)
+- **`web/app.py` `start_scan()`** — the `POST /api/scan` route handler. When called with a non-flip `scan_type` and no `lava_mode=True`, routes to `_run_scan_background()`
+- **`regog/main.py` `cmd_scan()`** — `regog scan residential|land|commercial` is the CLI equivalent
+- **Mutual exclusion** — `toggleMode()` in JS (line 1519) ensures only one of the three checkboxes is checked at a time. If all three are unchecked, DEAL RADAR auto-defaults (line 1535).
+
+---
+
+## 24. Lava Search Mode
 
 **Lava Search** is a special scan mode that only surfaces extreme deals — properties where the comp median is at least 200% of list price (the **default** threshold; user-adjustable via the `lava_min_profit` slider in the web UI). The filter is `comp_median / list_price >= (lava_min_profit / 100.0)`.
 
@@ -1273,7 +1362,7 @@ if lava_mode:
 
 ---
 
-## 24. Flip Radar Mode
+## 25. Flip Radar Mode
 
 A separate scan pipeline (`_run_flip_scan` in `web/app.py`). Distress-scored properties with ARV/rehab/profit/ROI analysis.
 
@@ -1356,7 +1445,7 @@ def _flip_tier(prop: dict) -> str:
 
 ---
 
-## 25. Utility Modules
+## 26. Utility Modules
 
 ### Density (`utils/density.py`)
 ZIP prefix → urban/suburban/rural. Static lookup for 150+ urban prefixes (major metro cores) and 200+ rural prefixes (MT, WY, ID, SD, ND, NV, WV, MS, NM, IA, AK, HI).
@@ -1387,7 +1476,7 @@ If the resolved location differs, the new location is persisted into the scan se
 
 ---
 
-## 26. Tests
+## 27. Tests
 
 **98 tests total.** Run with:
 ```bash
@@ -1419,7 +1508,7 @@ pytest -q
 
 ---
 
-## 27. Operational: Codespace Idle-Kill + Keepalive
+## 28. Operational: Codespace Idle-Kill + Keepalive
 
 ### The problem
 
@@ -1493,7 +1582,7 @@ If `HTTP 200` but process is gone within 30 seconds → codespace-idle-kill, re-
 
 ---
 
-## 28. ALL KNOWN PROBLEMS & HOW THEY WERE FIXED
+## 29. ALL KNOWN PROBLEMS & HOW THEY WERE FIXED
 
 This section catalogs every significant bug or issue encountered during development, with the root cause and the fix applied.
 
@@ -1527,7 +1616,7 @@ This section catalogs every significant bug or issue encountered during developm
 
 ---
 
-## 29. Problems That STILL EXIST
+## 30. Problems That STILL EXIST
 
 ### 🟠 DATA QUALITY ISSUES
 
@@ -1564,7 +1653,7 @@ This section catalogs every significant bug or issue encountered during developm
 
 ---
 
-## 30. Build Doc References (sibling files)
+## 31. Build Doc References (sibling files)
 
 The repo root contains a number of historical build / debug / analysis docs. **Read them in this order for deep context** (or skip and just use this V6 doc for most needs):
 
@@ -1633,4 +1722,5 @@ git tag -l 'v*' --sort=-version:refname
 
 *REGOG REBUILD V6 — current as of `5f2ca9d`*
 *98 passing tests · SQLite · Flask SSE · Style-filtered comps · Dark UI · LoopNet cookie bundle · Codespace keepalive*
+*Three scan modes: DEAL RADAR · LAVA SCAN · FLIP RADAR*
 *All data sources: public, free, no API keys required*

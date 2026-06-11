@@ -1,5 +1,25 @@
 # REGOG V5 — Complete Rebuild Guide
 
+> # ⚠️⚠️ DOUBLE-SUPERSEDED — DO NOT USE FOR NEW WORK ⚠️⚠️
+>
+> **Superseded twice. The current source of truth is [`REGOG_REBUILD_V8.md`](REGOG_REBUILD_V8.md)** (V8 supersedes V6 which superseded V5).
+>
+> **Superseded as of `5f2ca9d` (June 2026) by [`REGOG_REBUILD_V8.md`](REGOG_REBUILD_V8.md).** V5 was last updated before the V6/V7/V8 scan-mode overhaul and is missing the following:
+>
+> - **Three scan modes in the UI** — DEAL RADAR 🎯 (default), LAVA SCAN 🌋, FLIP RADAR 🔨. V5 only documents the residential/land/commercial `scan_type` values and has no concept of LAVA or FLIP pipelines.
+> - **LoopNet cookie bundle import** — replaced the broken Playwright login flow.
+> - **Codespace keepalive** — `scripts/regog_keepalive.sh` for the idle-kill problem.
+> - **Bug fixes** — dual-DB path bug, FEMA `None=8` penalty, `DISTRESSED_` tier prefix corruption, percentile-band price scoring, land per-acre scoring, commercial cap-rate GRM estimator, score-component mapping for land in the web app.
+> - **Project structure drift** — V5's tree is missing `loopnet_auth.py`, `acreage_enricher.py`, `loopnet_session.json`, `scripts/`, and the renamed/added UI assets.
+> - **Laws, rules, goals, keys, cookies section** — V8 §1 and §37.
+> - **Comprehensive chronology of fixes** — V8 §35.
+> - **Test coverage map** — V8 §33.
+> - **Outstanding-issues table with priority levels** — V8 §36.
+>
+> A new CLI agent starting from V5 alone will build an app that is missing most of the current behavior. **Start from V8.**
+>
+> **Historical context:** This V5 doc was the build guide used through the V5 scoring-fix series (Parts 1-7, all complete). It is preserved here for reference only.
+
 > **Purpose:** Real Estate Go/No-Go Scanner. Scrapes Realtor.com (via HomeHarvest) for active + sold listings, classifies properties via keyword matching, finds comparable sales via 2D expansion search (radius + time), scores each property 0-100 across 5-6 signals, and serves results via a dark-themed Flask web app with streaming SSE updates.
 >
 > **A new CLI agent with ZERO knowledge of this project should be able to rebuild REGOG from this document alone.**
