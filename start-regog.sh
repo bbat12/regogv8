@@ -22,7 +22,8 @@ sleep 1
 
 # 3. Start the app in a tmux session that survives shell exit
 echo "[3/5] Starting Flask app in tmux session 'regog'..."
-tmux new-session -d -s regog 'cd /workspaces/REgog && DISPLAY=:99 python serve_report.py 2>&1 | tee /tmp/regog-app.log'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tmux new-session -d -s regog "cd '$SCRIPT_DIR' && DISPLAY=:99 python serve_report.py 2>&1 | tee /tmp/regog-app.log"
 sleep 4
 
 # 4. Verify
