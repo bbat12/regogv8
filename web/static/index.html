@@ -261,6 +261,18 @@
         .loopnet-bar .ln-session-dot.expired   { background: var(--amber); }
         .loopnet-bar .ln-session-dot.error     { background: #ff4466; }
 
+        .loopnet-bar .ln-fallback {
+            flex-basis: 100%;
+            font-size: 0.72rem;
+            color: var(--text-dim, #888);
+        }
+        .loopnet-bar .ln-fallback summary {
+            cursor: pointer;
+            user-select: none;
+            padding: 2px 0;
+        }
+        .loopnet-bar .ln-fallback[open] { padding-bottom: 4px; }
+
         /* ─── Scan Bar ─────────────────────────────────────────────── */
         .scan-bar {
             background: var(--bg-surface);
@@ -1156,18 +1168,26 @@
             </div>
         </header>
 
-        <!-- LoopNet Cookie Import Bar -->
+        <!-- LoopNet Login Bar -->
         <div class="loopnet-bar" id="loopnet-bar">
             <span class="ln-label">🔗 LOOPNET</span>
             <span class="ln-session-dot" id="ln-session-dot" title="Session status"></span>
-            <textarea class="ln-input ln-textarea" id="ln-cookie"
-                      placeholder="Paste 3 cookies: SessionFarm_GUID=...; UserPreferences=...; UserInfo_AssociateID=..."
-                      rows="3" spellcheck="false" autocomplete="off"></textarea>
-            <button class="ln-btn" id="ln-btn" onclick="saveLoopnetCookie()">Save Cookies</button>
+            <input class="ln-input" type="email" id="ln-email"
+                   placeholder="LoopNet email" autocomplete="username" spellcheck="false">
+            <input class="ln-input" type="password" id="ln-password"
+                   placeholder="Password" autocomplete="current-password">
+            <button class="ln-btn" id="ln-login-btn" onclick="loopnetLogin()">Log In</button>
             <span class="ln-status" id="ln-status"></span>
-            <span class="ln-instructions">
-                Log into <a href="https://www.loopnet.com" target="_blank" rel="noopener" style="color:#5cc8ff;text-decoration:underline;">loopnet.com</a>, then in your browser open DevTools (<kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-family:monospace;">F12</kbd>) &rarr; <strong>Application</strong> &rarr; <strong>Cookies</strong> &rarr; <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">https://www.loopnet.com</code>. Copy these <strong>3 cookies</strong> (skip ad-tracking ones like TDID/TDCPM): <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">SessionFarm_GUID</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserPreferences</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserInfo_AssociateID</code> &mdash; paste them here as one string separated by <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">;</code>.
-            </span>
+            <details class="ln-fallback">
+                <summary>Cookie paste fallback (if login is blocked)</summary>
+                <textarea class="ln-input ln-textarea" id="ln-cookie"
+                          placeholder="Paste 3 cookies: SessionFarm_GUID=...; UserPreferences=...; UserInfo_AssociateID=..."
+                          rows="3" spellcheck="false" autocomplete="off"></textarea>
+                <button class="ln-btn" id="ln-btn" onclick="saveLoopnetCookie()">Save Cookies</button>
+                <span class="ln-instructions">
+                    Log into <a href="https://www.loopnet.com" target="_blank" rel="noopener" style="color:#5cc8ff;text-decoration:underline;">loopnet.com</a>, then in your browser open DevTools (<kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-family:monospace;">F12</kbd>) &rarr; <strong>Application</strong> &rarr; <strong>Cookies</strong> &rarr; <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">https://www.loopnet.com</code>. Copy these <strong>3 cookies</strong> (skip ad-tracking ones like TDID/TDCPM): <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">SessionFarm_GUID</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserPreferences</code>, <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">UserInfo_AssociateID</code> &mdash; paste them here as one string separated by <code style="background:var(--bg);padding:1px 4px;border-radius:3px;">;</code>.
+                </span>
+            </details>
         </div>
 
         <!-- Scan Bar -->
@@ -1425,8 +1445,72 @@
                 } else {
                     dot.title = 'Not connected';
                 }
+                // Prefill the email field from saved credentials (never the password)
+                const emailInput = document.getElementById('ln-email');
+                if (emailInput && !emailInput.value && data.credentials_email) {
+                    emailInput.value = data.credentials_email;
+                }
             } catch (err) {
                 // ignore
+            }
+        }
+
+        // POST email/password to /api/loopnet/login. The backend drives a real
+        // headless browser, so this can take up to ~60s.
+        async function loopnetLogin() {
+            const email = (document.getElementById('ln-email').value || '').trim();
+            const password = document.getElementById('ln-password').value || '';
+            const btn = document.getElementById('ln-login-btn');
+            const status = document.getElementById('ln-status');
+
+            status.className = 'ln-status';
+            status.textContent = '';
+
+            if (!email || !email.includes('@')) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Enter your LoopNet email';
+                return;
+            }
+            if (!password) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Enter your password';
+                return;
+            }
+
+            btn.disabled = true;
+            const prevLabel = btn.textContent;
+            btn.textContent = 'Logging in…';
+            status.className = 'ln-status working';
+            status.innerHTML = '<span class="spinner"></span> Logging in (can take up to a minute)…';
+
+            try {
+                const resp = await fetch('/api/loopnet/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, remember: true }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    status.className = 'ln-status error';
+                    let msg = data.error || `Login failed (HTTP ${resp.status})`;
+                    if (data.reason === 'blocked') {
+                        msg += ' — use the cookie paste fallback below.';
+                        const fb = document.querySelector('.ln-fallback');
+                        if (fb) fb.open = true;
+                    }
+                    status.textContent = '✕ ' + msg;
+                    return;
+                }
+                status.className = 'ln-status success';
+                status.textContent = `✓ Logged in — ${data.cookie_count} cookies saved`;
+                document.getElementById('ln-password').value = '';
+                refreshLoopnetSessionDot();
+            } catch (err) {
+                status.className = 'ln-status error';
+                status.textContent = '✕ Network error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = prevLabel;
             }
         }
 

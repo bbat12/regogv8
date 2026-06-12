@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# LoopNet secrets — real session cookies + login credentials. Never commit.
+loopnet_session.json
+loopnet_credentials.json

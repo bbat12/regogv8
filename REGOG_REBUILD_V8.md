@@ -79,7 +79,7 @@ These constraints have been tested and re-tested. If you change them, you will r
 7. **Realtor.com is gated by HomeHarvest.** If HomeHarvest changes column names, the `g(*keys)` helper in `normalize_listing` handles it by trying 5+ fallback names per field. **Do not remove this fallback chain.**
 8. **The Flask server must be started via `serve_report.py` in production.** `web/app.py`'s `__main__` block uses `debug=True`, which spawns a reloader child that `pkill -f` will leave orphaned.
 9. **The keepalive wraps `serve_report.py`, not the other way around.** Keepalive restarts the Flask server, not itself.
-10. **LoopNet is Cloudflare/Akamai-gated.** The IP of the codespace is denylisted. Manual cookie paste is the only path. See §15 for the cookie flow.
+10. **LoopNet is Cloudflare/Akamai-gated.** The IP of the codespace is denylisted. Email/password login (`POST /api/loopnet/login`) is the primary path but only works from a clean IP or via `LOOPNET_PROXY`; from the denylisted codespace, manual cookie paste is the only working path. See §15.
 
 ### Rules (project conventions to follow)
 
@@ -126,7 +126,7 @@ REGOG is a US nationwide real-estate intelligence scanner. It does the following
    - **DEAL RADAR** 🎯 — default. Find underpriced properties. Single location, full pipeline, all tiers.
    - **LAVA SCAN** 🌋 — Only surfaces deals where `comp_median / list_price >= 2.0` (200% profit). Optional nationwide mode cycles top 20 US metros.
    - **FLIP RADAR** 🔨 — Distress-scored (DISTRESS_HIGH/MEDIUM/LOW keywords, 3/2/1 pts). ARV / repair / max-offer / profit / ROI / deal grade A/B/C/D. Property-type dropdown: single_family, multi_family, condos, commercial, townhomes, hotel, rv_park, mixed_use, all.
-10. **LoopNet auth** — semicolon-separated cookie bundle import. User logs into LoopNet in their browser, pastes cookies, backend parses, saves to `loopnet_session.json`, scraper sends cookies on every request.
+10. **LoopNet auth** — primary: email/password login (no 2FA) via headless Playwright (`POST /api/loopnet/login`), credentials remembered in `loopnet_credentials.json` for auto re-login. Fallback: semicolon-separated cookie bundle paste. Both save to `loopnet_session.json`; scraper sends cookies on every request.
 
 **Stack:** Python 3.11+ · SQLite · Flask 2.0+ · HomeHarvest · Playwright (optional) · Rich · Jinja2 · Flask-CORS.
 
@@ -1041,9 +1041,24 @@ When multiple sources are used, `merge_and_deduplicate()` normalizes addresses a
 
 **OLD (deprecated, broken):** Playwright login popup, then save the `storage_state` to a file. Fragile, hard to maintain, and broke when Akamai protected the auth flow.
 
-**NEW (current, since `00481a6`):** User pastes a semicolon-separated cookie bundle from DevTools → backend parses → saved to `loopnet_session.json` → scraper sends cookies on every request via `Cookie` header.
+**Cookie paste (since `00481a6`, now the FALLBACK):** User pastes a semicolon-separated cookie bundle from DevTools → backend parses → saved to `loopnet_session.json` → scraper sends cookies on every request via `Cookie` header.
+
+**CURRENT PRIMARY — email/password credentials login (June 2026):** User enters their LoopNet email + password in the REGOG UI (LoopNet has no 2FA) → `POST /api/loopnet/login` drives a headless stealth Playwright browser through the sign-in form at `https://www.loopnet.com/auth/signin` → cookies extracted from the browser context → saved to `loopnet_session.json` in the exact same format the cookie-paste path produces. Credentials are remembered in `loopnet_credentials.json` (0600, gitignored) so `phase_scrape` can re-login automatically when the session goes stale. CLI equivalent: `python3 -m scrapers.loopnet_auth login-credentials <email> <password>` (re-uses saved credentials when called with no args).
+
+**Caveat:** the credentials login runs the browser on the REGOG host — so from the Akamai-denylisted codespace it fails fast with `reason="blocked"` (see "Known problem" below). It works from a clean IP, or set `LOOPNET_PROXY=http://user:pass@host:port` to route the browser through a residential proxy. From a blocked IP, the cookie-paste fallback (cookies harvested in the user's own browser on a residential connection) remains the only working path.
 
 ### Endpoints (in `web/app.py`)
+
+#### `POST /api/loopnet/login`
+
+Accepts `{"email": ..., "password": ..., "remember": bool}` (`remember` defaults true). Runs `scrapers.loopnet_auth.login_with_credentials()` synchronously (up to ~60s — it drives a real browser). Responses:
+
+- `200 {"status": "logged_in", "cookie_count", "missing_expected", "credentials_saved", "path"}`
+- `400` — missing/invalid email or password
+- `401 {"reason": "bad_credentials"}` — LoopNet rejected the combination
+- `502 {"reason": "blocked" | "form_not_found" | "timeout"}` — `blocked` means the host IP is on Akamai's denylist; the UI auto-opens the cookie-paste fallback in that case
+
+`LoopNetLoginError` (in `loopnet_auth.py`) carries `.reason` with those same codes.
 
 #### `POST /api/loopnet/save-cookie`
 
@@ -1080,6 +1095,8 @@ Returns:
     "age_minutes": float | None,
     "cookie_count": int,
     "missing_expected": list[str],
+    "credentials_saved": bool,          # loopnet_credentials.json present + valid
+    "credentials_email": str | None,    # for prefilling the UI email field
 }
 ```
 
@@ -1100,6 +1117,13 @@ EXPECTED_LOOPNET_COOKIES = [
 
 ### UI flow (in `web/static/index.html`)
 
+**Primary (email/password):**
+1. User enters LoopNet email + password in the LoopNet bar and clicks **Log In**
+2. `loopnetLogin()` (JS) POSTs to `/api/loopnet/login` (button shows a "can take up to a minute" spinner)
+3. On success the password field is cleared, the dot refreshes; on `reason="blocked"` the cookie-paste fallback `<details>` auto-opens
+4. On page load, `refreshLoopnetSessionDot()` prefills the email field from `credentials_email` (never the password)
+
+**Fallback (cookie paste, inside a collapsed `<details class="ln-fallback">`):**
 1. User logs into LoopNet in their browser (Chrome, Firefox, etc.)
 2. Opens DevTools → Application tab → Cookies → `https://www.loopnet.com`
 3. Copies the 3 expected cookies (or all 3+ if more present) as `name=value; name=value; ...`
@@ -1120,9 +1144,11 @@ context.set_extra_http_headers({"Cookie": cookie_string})  # for HTTP requests
 context.add_cookies(_session_to_cookies(session))        # for document.cookie
 ```
 
-### Storage file
+### Storage files
 
-`/workspaces/regogv8/loopnet_session.json` — **UNTRACKED in git** (in `.gitignore`). Contains real/test cookies. Never commit. Will be regenerated each time the user pastes a fresh bundle.
+`/workspaces/regogv8/loopnet_session.json` — session cookies. **In `.gitignore`** (entry added June 2026 — before that the doc claimed it was ignored but it was merely untracked). Never commit. Regenerated on every credentials login or cookie paste.
+
+`/workspaces/regogv8/loopnet_credentials.json` — `{"email", "password"}`, written with mode 0600 when the user logs in with `remember: true`. **In `.gitignore`.** Never commit. Used by `phase_scrape` for automatic re-login when the session file is missing/empty, and by the no-arg `login-credentials` CLI command.
 
 ### Known problem: codespace IP is denylisted by Akamai
 
@@ -1967,8 +1993,9 @@ Flask app with REST API + SSE streaming + background scan threads + LoopNet cook
 | `/api/saved/<listing_id>` | POST | Toggle save/unsave |
 | `/api/saved/<listing_id>/status` | GET | Check if saved |
 | `/api/property/<listing_id>` | GET | Single property detail |
-| `/api/loopnet/save-cookie` | POST | Save LoopNet cookie bundle (see §15) |
-| `/api/loopnet/session/status` | GET | LoopNet session status |
+| `/api/loopnet/login` | POST | Email/password login via headless Playwright (see §15) |
+| `/api/loopnet/save-cookie` | POST | Save LoopNet cookie bundle — fallback (see §15) |
+| `/api/loopnet/session/status` | GET | LoopNet session status (+ saved-credentials info) |
 
 ### SSE events (in order)
 

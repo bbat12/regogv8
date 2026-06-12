@@ -347,6 +347,71 @@ def get_property_detail(listing_id):
 
 # ── LoopNet credentials login ───────────────────────────────────────
 
+LOOPNET_CREDENTIALS_PATH = Path(__file__).resolve().parent.parent / "loopnet_credentials.json"
+
+
+@app.route("/api/loopnet/login", methods=["POST"])
+def loopnet_login():
+    """
+    Log in to LoopNet with email + password (LoopNet has no 2FA) via a
+    headless Playwright browser, and save the resulting cookies to
+    LOOPNET_SESSION_PATH. Body: {"email": ..., "password": ..., "remember": bool}.
+
+    `remember` (default true) also saves the credentials to
+    LOOPNET_CREDENTIALS_PATH (0600, gitignored) so the scraper can re-login
+    automatically when the session goes stale.
+
+    This call drives a real browser and can take up to ~60s.
+    """
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    remember = bool(data.get("remember", True))
+
+    if not email or "@" not in email:
+        return jsonify({"error": "A valid email is required"}), 400
+    if not password:
+        return jsonify({"error": "Password is required"}), 400
+
+    from scrapers.loopnet_auth import (
+        LoopNetLoginError,
+        login_with_credentials,
+        save_credentials,
+    )
+
+    try:
+        session = login_with_credentials(
+            email, password, session_path=LOOPNET_SESSION_PATH
+        )
+    except LoopNetLoginError as e:
+        status = 401 if e.reason == "bad_credentials" else 502
+        logger.warning(f"LoopNet credentials login failed ({e.reason}): {e}")
+        return jsonify({"error": str(e), "reason": e.reason}), status
+    except Exception as e:
+        logger.exception("LoopNet credentials login crashed")
+        return jsonify({"error": f"Login failed unexpectedly: {e}",
+                        "reason": "crash"}), 500
+
+    if remember:
+        try:
+            save_credentials(email, password,
+                             credentials_path=LOOPNET_CREDENTIALS_PATH)
+        except Exception:
+            logger.exception("Failed to save LoopNet credentials")
+
+    logger.info(
+        f"LoopNet credentials login OK — {len(session['cookies'])} cookies "
+        f"saved to {LOOPNET_SESSION_PATH}"
+    )
+    return jsonify({
+        "status": "logged_in",
+        "path": str(LOOPNET_SESSION_PATH),
+        "cookie_count": len(session["cookies"]),
+        "missing_expected": session["missing_expected"],
+        "credentials_saved": remember,
+    })
+
+
 # ── LoopNet cookie import (semicolon-separated bundle) ────────
 
 LOOPNET_SESSION_PATH = Path(__file__).resolve().parent.parent / "loopnet_session.json"
@@ -475,12 +540,21 @@ def loopnet_session_status():
             missing_expected = session.get("missing_expected", []) or []
         except Exception:
             pass
+    credentials_email = None
+    if LOOPNET_CREDENTIALS_PATH.exists():
+        try:
+            with open(LOOPNET_CREDENTIALS_PATH) as f:
+                credentials_email = json.load(f).get("email")
+        except Exception:
+            pass
     return jsonify({
         "exists": exists,
         "path": str(LOOPNET_SESSION_PATH),
         "age_minutes": age_min,
         "cookie_count": cookie_count,
         "missing_expected": missing_expected,
+        "credentials_saved": credentials_email is not None,
+        "credentials_email": credentials_email,
     })
 # ── Lava Search: Nationwide Multi-City Scan ────────────────────────────
 
